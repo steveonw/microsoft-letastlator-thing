@@ -1,0 +1,436 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #18202a;
+  background: #f4f6f8;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button {
+  font: inherit;
+}
+
+.topbar {
+  min-height: 72px;
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #101a2a;
+  color: white;
+  border-bottom: 1px solid #243247;
+}
+
+.brand {
+  font-size: 20px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #b7c3d4;
+}
+
+.demo-pill,
+.status-pill,
+.count,
+.claim-type,
+.verify {
+  border-radius: 999px;
+}
+
+.demo-pill {
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  background: #263752;
+  color: #dbeafe;
+}
+
+.page {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 28px;
+}
+
+.hero {
+  display: flex;
+  gap: 24px;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+.eyebrow,
+.label {
+  margin: 0 0 7px;
+  color: #667085;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 7px;
+  font-size: clamp(26px, 3vw, 40px);
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+}
+
+h2 {
+  margin-bottom: 12px;
+  font-size: 25px;
+}
+
+h3 {
+  margin: 28px 0 12px;
+  font-size: 14px;
+}
+
+.muted {
+  margin: 0;
+  color: #667085;
+}
+
+.mode-card {
+  min-width: 140px;
+  padding: 14px 18px;
+  background: white;
+  border: 1px solid #dde3ea;
+  border-radius: 14px;
+  box-shadow: 0 5px 18px rgba(16, 24, 40, 0.05);
+}
+
+.mode-card strong {
+  display: block;
+  text-transform: capitalize;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.8fr) minmax(420px, 1.8fr) minmax(280px, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.panel,
+.review-bar {
+  background: white;
+  border: 1px solid #dde3ea;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.05);
+}
+
+.panel {
+  min-height: 560px;
+  overflow: hidden;
+}
+
+.panel-heading {
+  min-height: 52px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e7ebf0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.count {
+  padding: 3px 8px;
+  background: #eef2f6;
+  color: #667085;
+  font-size: 11px;
+}
+
+.steps {
+  padding: 10px;
+}
+
+.step-button {
+  width: 100%;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  padding: 12px;
+  margin-bottom: 5px;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 8px;
+  color: #344054;
+}
+
+.step-button:hover {
+  background: #f5f7fa;
+}
+
+.step-button.active {
+  background: #edf4ff;
+  color: #164f9c;
+}
+
+.step-index {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #eef2f6;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.step-button.active .step-index {
+  background: #1f6feb;
+  color: white;
+}
+
+.step-name {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.step-state {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #7b8794;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.analysis-body {
+  padding: 22px;
+}
+
+.ai-output {
+  padding: 16px;
+  background: #f8fafc;
+  border-left: 3px solid #5b8def;
+  border-radius: 8px;
+  line-height: 1.55;
+  color: #344054;
+}
+
+.claim-card {
+  padding: 16px;
+  border: 1px solid #dfe5ec;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: 120ms ease;
+}
+
+.claim-card:hover,
+.claim-card.active {
+  border-color: #8cb6f5;
+  box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.08);
+}
+
+.claim-text {
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 650;
+  color: #1f2937;
+}
+
+.claim-meta {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.claim-type,
+.verify {
+  padding: 5px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.claim-type {
+  color: #475467;
+  background: #f2f4f7;
+}
+
+.verify {
+  background: #eaf8ef;
+  color: #237a44;
+}
+
+.verify.partially_supported,
+.verify.needs_clarification,
+.verify.needs_human_review {
+  background: #fff7e6;
+  color: #93640c;
+}
+
+.verify.unsupported {
+  background: #fff0f0;
+  color: #b42318;
+}
+
+.status-pill {
+  padding: 5px 9px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  background: #eef2f6;
+  color: #475467;
+}
+
+.evidence-list {
+  padding: 14px;
+}
+
+.evidence-card {
+  padding: 14px;
+  border: 1px solid #e0e6ed;
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+
+.evidence-card blockquote {
+  margin: 10px 0 12px;
+  padding-left: 12px;
+  border-left: 2px solid #cfd8e3;
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.evidence-source {
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.evidence-locator {
+  margin-top: 5px;
+  font-size: 11px;
+  color: #667085;
+}
+
+.empty {
+  padding: 18px 4px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.review-bar {
+  margin-top: 16px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 7px 18px;
+  align-items: center;
+}
+
+.review-bar .label {
+  display: block;
+  margin-bottom: 3px;
+}
+
+.review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.review-actions button {
+  border: 1px solid #d6dce5;
+  background: #f7f9fb;
+  color: #98a2b3;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #98a2b3;
+  font-size: 11px;
+}
+
+.error {
+  margin: 30px auto;
+  max-width: 760px;
+  padding: 18px;
+  border: 1px solid #f0b9b9;
+  background: #fff4f4;
+  border-radius: 12px;
+}
+
+@media (max-width: 1000px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    min-height: 0;
+  }
+
+  .steps {
+    display: flex;
+    overflow-x: auto;
+  }
+
+  .step-button {
+    min-width: 190px;
+  }
+}
+
+@media (max-width: 650px) {
+  .page {
+    padding: 18px;
+  }
+
+  .topbar {
+    padding: 14px 18px;
+  }
+
+  .hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mode-card {
+    width: 100%;
+  }
+
+  .review-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .review-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .hint {
+    grid-column: auto;
+  }
+}

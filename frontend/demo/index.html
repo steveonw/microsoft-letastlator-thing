@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PolicyTrace Demo</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="brand">PolicyTrace</div>
+      <div class="subtitle">Evidence-grounded policy analysis</div>
+    </div>
+    <div class="demo-pill">FICTIONAL DEMO DATA</div>
+  </header>
+
+  <main class="page">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Chunk 1 proof of concept</p>
+        <h1 id="policy-title">Loading policy…</h1>
+        <p id="policy-meta" class="muted"></p>
+      </div>
+      <div class="mode-card">
+        <span class="label">Mode</span>
+        <strong id="mode">—</strong>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <aside class="panel steps-panel">
+        <div class="panel-heading">
+          <span>Analysis Steps</span>
+          <span id="step-count" class="count"></span>
+        </div>
+        <div id="steps" class="steps"></div>
+      </aside>
+
+      <section class="panel analysis-panel">
+        <div class="panel-heading">
+          <span>Current Analysis</span>
+          <span id="step-status" class="status-pill"></span>
+        </div>
+
+        <div class="analysis-body">
+          <p class="eyebrow" id="step-kind"></p>
+          <h2 id="step-title">Select a step</h2>
+          <p id="ai-output" class="ai-output"></p>
+
+          <h3>Claims</h3>
+          <div id="claims" class="claims"></div>
+        </div>
+      </section>
+
+      <aside class="panel evidence-panel">
+        <div class="panel-heading">
+          <span>Evidence</span>
+          <span id="evidence-count" class="count"></span>
+        </div>
+        <div id="evidence" class="evidence-list">
+          <p class="empty">Select a claim to inspect its evidence.</p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="review-bar">
+      <div>
+        <span class="label">Human final review</span>
+        <strong id="review-status">—</strong>
+      </div>
+      <div class="review-actions">
+        <button type="button" disabled>Clarify</button>
+        <button type="button" disabled>Edit</button>
+        <button type="button" disabled>Verify</button>
+        <button type="button" disabled>Next</button>
+      </div>
+      <p class="hint">Buttons are visual placeholders for later chunks.</p>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
