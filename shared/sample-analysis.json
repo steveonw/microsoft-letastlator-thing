@@ -1,0 +1,119 @@
+{
+  "schema_version": "0.1.0",
+  "id": "run-demo-001",
+  "mode": "guided",
+  "policy": {
+    "id": "policy-demo-001",
+    "title": "[FICTIONAL DEMO] Energy Reporting Rule",
+    "jurisdiction": "Demo / fictional",
+    "version": "draft-1",
+    "source_ids": ["source-policy-001"]
+  },
+  "sources": [
+    {
+      "id": "source-policy-001",
+      "title": "[FICTIONAL DEMO] Energy Reporting Rule",
+      "information_type": "official_policy",
+      "url": null,
+      "agency": "Demo Energy Agency",
+      "published_at": null,
+      "version": "draft-1",
+      "raw_text": "Section 2(a). Covered providers must maintain an annual compliance record. Section 4(b). Each licensed provider must submit an annual energy-use report no later than March 31."
+    }
+  ],
+  "evidence": [
+    {
+      "id": "evidence-001",
+      "source_id": "source-policy-001",
+      "snippet": "Covered providers must maintain an annual compliance record.",
+      "locator": "Section 2(a)",
+      "retrieved_at": "2026-09-21T18:00:00Z"
+    },
+    {
+      "id": "evidence-002",
+      "source_id": "source-policy-001",
+      "snippet": "Each licensed provider must submit an annual energy-use report no later than March 31.",
+      "locator": "Section 4(b)",
+      "retrieved_at": "2026-09-21T18:00:00Z"
+    }
+  ],
+  "steps": [
+    {
+      "id": "step-1",
+      "kind": "policy_understanding",
+      "title": "Understand the policy",
+      "status": "verified",
+      "depends_on": [],
+      "claims": [
+        {
+          "id": "claim-001",
+          "text": "The rule creates annual recordkeeping and reporting duties for covered or licensed providers.",
+          "information_type": "ai_interpretation",
+          "evidence_ids": ["evidence-001", "evidence-002"],
+          "verification_status": "supported",
+          "confidence": "high"
+        }
+      ],
+      "ai_output": "The fictional rule creates annual compliance recordkeeping and energy-use reporting duties.",
+      "human_review": {
+        "status": "not_reviewed",
+        "notes": [],
+        "flagged_claim_ids": [],
+        "edited_claim_ids": []
+      },
+      "version": 1
+    },
+    {
+      "id": "step-2",
+      "kind": "major_provisions",
+      "title": "Identify major provisions",
+      "status": "verified",
+      "depends_on": ["step-1"],
+      "claims": [
+        {
+          "id": "claim-002",
+          "text": "Licensed providers must submit an annual energy-use report by March 31.",
+          "information_type": "ai_interpretation",
+          "evidence_ids": ["evidence-002"],
+          "verification_status": "supported",
+          "confidence": "high"
+        }
+      ],
+      "ai_output": "A major provision is the annual March 31 reporting requirement for licensed providers.",
+      "human_review": {
+        "status": "not_reviewed",
+        "notes": [],
+        "flagged_claim_ids": [],
+        "edited_claim_ids": []
+      },
+      "version": 1
+    },
+    {
+      "id": "step-3",
+      "kind": "stakeholders",
+      "title": "Identify potentially affected stakeholders",
+      "status": "draft",
+      "depends_on": ["step-1", "step-2"],
+      "claims": [
+        {
+          "id": "claim-003",
+          "text": "Licensed providers are directly affected because they must submit the annual report.",
+          "information_type": "ai_interpretation",
+          "evidence_ids": ["evidence-002"],
+          "verification_status": "supported",
+          "confidence": "high"
+        }
+      ],
+      "ai_output": "Licensed providers are the clearest directly affected stakeholder group in the supplied text.",
+      "human_review": {
+        "status": "not_reviewed",
+        "notes": [],
+        "flagged_claim_ids": [],
+        "edited_claim_ids": []
+      },
+      "version": 1
+    }
+  ],
+  "current_step_id": "step-3",
+  "final_review_status": "not_reviewed"
+}
