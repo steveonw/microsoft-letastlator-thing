@@ -89,6 +89,177 @@ Example: changing the stakeholder analysis should not force the policy text extr
 
 ---
 
+## Recommended source stack
+
+For the hackathon, use a small number of sources well instead of trying to integrate everything at once.
+
+### MVP sources
+
+**Federal Register**  
+https://www.federalregister.gov/developers/documentation/api/v1
+
+Use for:
+- proposed rules
+- final rules
+- notices
+- official agency text
+- dates and agency metadata
+
+**Regulations.gov**  
+https://open.gsa.gov/api/regulationsgov/
+
+Use for:
+- regulatory dockets
+- supporting documents
+- public comments
+- citizen/stakeholder feedback tied to a rule
+
+**GDELT Project**  
+https://gdeltproject.org/
+
+Use for:
+- news coverage
+- media discussion around the policy
+- broader public-information context
+
+### Second policy pathway
+
+**Congress.gov API**  
+https://api.congress.gov/
+
+Use for:
+- bills
+- bill metadata
+- actions
+- amendments
+- legislative history
+
+Add this after the regulation workflow is working.
+
+### Supporting / optional sources
+
+**GovInfo**  
+https://www.govinfo.gov/
+
+Use as an authoritative backup/source for official government documents and historical material.
+
+**Data.gov**  
+https://data.gov/
+
+Use to discover supporting government datasets when a policy analysis needs factual context. Do not make this a required part of the first demo.
+
+---
+
+## Microsoft pieces
+
+**Azure AI Search**  
+https://learn.microsoft.com/en-us/azure/search/
+
+Role:
+- index normalized policy text, comments, and news evidence
+- chunk documents
+- retrieve the most relevant evidence for each analysis step
+- support traceable claim-to-source retrieval
+
+**Microsoft Foundry**  
+https://learn.microsoft.com/en-us/azure/foundry/
+
+Role:
+- run the analysis prompts/workflows
+- generate structured findings
+- run the separate claim-verification pass
+- support evaluation/tracing as the project grows
+
+**Microsoft Responsible AI tools and practices**  
+https://www.microsoft.com/en-us/ai/tools-practices
+
+Role:
+- guide transparency
+- keep humans in control
+- communicate uncertainty
+- preserve conflicting/minority viewpoints
+- avoid overstating public sentiment
+
+**Microsoft Fabric — optional for MVP**  
+https://learn.microsoft.com/en-us/fabric/
+
+If used, give it one clear job:
+- ingest/store/normalize data from the government/news sources before indexing it in Azure AI Search
+
+Do not make Fabric a blocker for the first working demo.
+
+---
+
+## Source flow
+
+```text
+        OFFICIAL POLICY / RULE TEXT
+          Federal Register
+          Congress.gov
+          GovInfo
+                |
+                v
+        +-------------------+
+        | Normalize / Chunk |
+        +---------+---------+
+                  |
+                  v
+        +-------------------+
+        | Azure AI Search   |
+        | Evidence Index    |
+        +---------+---------+
+                  |
+      +-----------+-----------+
+      |                       |
+      v                       v
+Regulations.gov             GDELT
+Public comments             News/reporting
+Stakeholder feedback        Media context
+      |                       |
+      +-----------+-----------+
+                  |
+                  v
+          Microsoft Foundry
+       Analyze -> Verify -> Brief
+                  |
+                  v
+          HUMAN FINAL REVIEW
+```
+
+## Source types inside PolicyTrace
+
+Keep source types visibly separate:
+
+```text
+OFFICIAL_POLICY
+  Federal Register
+  Congress.gov
+  GovInfo
+
+OFFICIAL_CONTEXT
+  agency supporting material
+  Data.gov datasets when relevant
+
+PUBLIC_OPINION
+  Regulations.gov public comments
+
+FACTUAL_REPORTING
+  news/reporting discovered through GDELT
+
+STAKEHOLDER_CLAIM
+  statements from organizations/groups
+
+AI_INTERPRETATION
+  PolicyTrace-generated analysis
+
+HUMAN_INTERPRETATION
+  analyst edits or conclusions
+```
+
+The system should never present public comments, stakeholder statements, news reporting, or AI interpretation as though they were official policy language.
+
+---
+
 ## Work chunks
 
 ### Chunk 1 — Project skeleton + shared data shape
@@ -113,11 +284,14 @@ Define simple structures for:
 
 **Goal:** Get one policy into the system reliably.
 
-Start small:
-- paste policy text and/or load one known source
-- preserve title/source metadata
+Start with one regulation workflow:
+- load a rule from **Federal Register**
+- optionally connect its docket/material from **Regulations.gov**
+- preserve title/source/agency/date metadata
 - split into usable sections/chunks
 - keep section/page/source references where possible
+
+After this works, add **Congress.gov** as a second policy pathway.
 
 **Done when:** A policy becomes structured source material the analysis pipeline can reference.
 
@@ -134,6 +308,8 @@ For each evidence item keep:
 - source type
 - retrieval metadata
 
+Use **Azure AI Search** to index and retrieve normalized evidence when practical for the demo.
+
 **Done when:** A claim can point to a specific piece of evidence and the user can inspect it.
 
 ---
@@ -149,6 +325,8 @@ Initial steps:
 
 Each result should be structured and linked to evidence.
 
+Use **Microsoft Foundry** for the analysis workflow if available.
+
 **Done when:** One policy can move through these steps and produce inspectable results.
 
 ---
@@ -157,10 +335,10 @@ Each result should be structured and linked to evidence.
 
 **Goal:** Add a small set of outside reactions without pretending they represent everyone.
 
-Analyze a manageable demo dataset such as:
-- public comments
-- selected news/reporting
-- stakeholder statements
+Start with:
+- **Regulations.gov** public comments
+- **GDELT** news/reporting
+- selected stakeholder statements when useful
 
 Surface:
 - recurring concerns
@@ -183,6 +361,8 @@ Statuses:
 - Needs clarification
 - Unsupported
 - Needs human review
+
+The verifier should receive the claim plus the underlying retrieved evidence and decide whether the evidence actually supports it.
 
 **Done when:** A separate verification pass can inspect a claim + evidence and return a visible status.
 
@@ -244,18 +424,19 @@ Then assemble the final brief from reviewed sections.
 1 Skeleton/data shapes
         |
         v
-2 Policy input
+2 Federal Register / Regulations.gov input
         |
         v
-3 Evidence/citations
+3 Evidence + Azure AI Search
         |
         v
-4 Core analysis
+4 Core analysis with Foundry
         |
         +----------------+
         |                |
         v                v
 5 Public response   6 Verification
+(Regulations/GDELT)     |
         |                |
         +-------+--------+
                 |
@@ -267,6 +448,9 @@ Then assemble the final brief from reviewed sections.
                 |
                 v
      9 Re-analysis + Brief
+                |
+                v
+       Add Congress.gov path
 ```
 
 Chunks 5 and 6 can be worked on in parallel once Chunks 1–4 are stable.
@@ -279,6 +463,7 @@ For the demo, prefer:
 - a few reliable sources over dozens of integrations
 - traceable claims over lots of generated prose
 - one strong end-to-end workflow over many unfinished features
+- Fabric only if it clearly simplifies ingestion/storage
 
 ## Core product rule
 
