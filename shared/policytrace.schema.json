@@ -1,0 +1,323 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://policytrace.local/schema/policytrace.schema.json",
+  "title": "PolicyTrace AnalysisRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "mode",
+    "policy",
+    "sources",
+    "evidence",
+    "steps",
+    "final_review_status"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1.0"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["guided", "rush"]
+    },
+    "policy": {
+      "$ref": "#/$defs/policy"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/analysisStep"
+      }
+    },
+    "current_step_id": {
+      "type": ["string", "null"]
+    },
+    "final_review_status": {
+      "$ref": "#/$defs/humanReviewStatus"
+    }
+  },
+  "$defs": {
+    "informationType": {
+      "type": "string",
+      "enum": [
+        "official_policy",
+        "official_context",
+        "factual_reporting",
+        "public_opinion",
+        "stakeholder_claim",
+        "ai_interpretation",
+        "human_interpretation",
+        "unverified"
+      ]
+    },
+    "verificationStatus": {
+      "type": "string",
+      "enum": [
+        "supported",
+        "partially_supported",
+        "needs_clarification",
+        "unsupported",
+        "needs_human_review"
+      ]
+    },
+    "stepStatus": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "verified",
+        "human_edited",
+        "approved",
+        "needs_refresh"
+      ]
+    },
+    "humanReviewStatus": {
+      "type": "string",
+      "enum": [
+        "not_reviewed",
+        "in_review",
+        "reviewed",
+        "approved"
+      ]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "jurisdiction", "source_ids"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "jurisdiction": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": ["string", "null"]
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "information_type"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "information_type": {
+          "$ref": "#/$defs/informationType"
+        },
+        "url": {
+          "type": ["string", "null"],
+          "format": "uri"
+        },
+        "agency": {
+          "type": ["string", "null"]
+        },
+        "published_at": {
+          "type": ["string", "null"],
+          "format": "date"
+        },
+        "version": {
+          "type": ["string", "null"]
+        },
+        "raw_text": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source_id",
+        "snippet",
+        "retrieved_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "snippet": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locator": {
+          "type": ["string", "null"]
+        },
+        "retrieved_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "text",
+        "information_type",
+        "evidence_ids",
+        "verification_status",
+        "confidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "information_type": {
+          "$ref": "#/$defs/informationType"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verification_status": {
+          "$ref": "#/$defs/verificationStatus"
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        }
+      }
+    },
+    "humanReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "notes",
+        "flagged_claim_ids",
+        "edited_claim_ids"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/humanReviewStatus"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "flagged_claim_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "edited_claim_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "analysisStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "status",
+        "depends_on",
+        "claims",
+        "human_review",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "$ref": "#/$defs/stepStatus"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/claim"
+          }
+        },
+        "ai_output": {
+          "type": ["string", "null"]
+        },
+        "human_review": {
+          "$ref": "#/$defs/humanReview"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}
