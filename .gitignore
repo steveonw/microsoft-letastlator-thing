@@ -15,3 +15,8 @@ data/evidence/*.chunk3-demo.json
 Thumbs.db
 .vscode/
 .idea/
+
+# Local secrets / environment files
+.env
+.env.*
+!.env.example
