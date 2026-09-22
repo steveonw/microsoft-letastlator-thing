@@ -37,7 +37,7 @@ def source_from_federal_register(document: NormalizedPolicyDocument) -> Source:
     )
 
 
-def _find_chunk_with_query(
+def _find_match_in_source(
     document: NormalizedPolicyDocument,
     query: str,
 ) -> tuple[NormalizedChunk, int, int]:
@@ -45,12 +45,27 @@ def _find_chunk_with_query(
         raise ValueError("query must not be empty")
 
     pattern = re.compile(re.escape(query), flags=re.IGNORECASE)
-    for chunk in document.chunks:
-        match = pattern.search(chunk.text)
-        if match is not None:
-            return chunk, match.start(), match.end()
+    match = pattern.search(document.raw_text)
+    if match is None:
+        raise ValueError(f"query not found in normalized source text: {query!r}")
 
-    raise ValueError(f"query not found in normalized source text: {query!r}")
+    match_start = match.start()
+    match_end = match.end()
+
+    for chunk in document.chunks:
+        if chunk.start_offset <= match_start < chunk.end_offset:
+            return chunk, match_start, match_end
+
+    # A match can begin in whitespace between chunks. Use the nearest following
+    # chunk, or the final chunk as a stable locator fallback.
+    for chunk in document.chunks:
+        if chunk.start_offset > match_start:
+            return chunk, match_start, match_end
+
+    if document.chunks:
+        return document.chunks[-1], match_start, match_end
+
+    raise ValueError("normalized document has no chunks")
 
 
 def _expand_window_to_word_boundaries(
@@ -116,21 +131,18 @@ def evidence_for_query(
     if context_chars < 0:
         raise ValueError("context_chars must be non-negative")
 
-    chunk, local_match_start, local_match_end = _find_chunk_with_query(
+    chunk, global_match_start, global_match_end = _find_match_in_source(
         document,
         query,
     )
 
-    local_start = max(0, local_match_start - context_chars)
-    local_end = min(len(chunk.text), local_match_end + context_chars)
-    local_start, local_end = _expand_window_to_word_boundaries(
-        chunk.text,
-        local_start,
-        local_end,
+    global_start = max(0, global_match_start - context_chars)
+    global_end = min(len(document.raw_text), global_match_end + context_chars)
+    global_start, global_end = _expand_window_to_word_boundaries(
+        document.raw_text,
+        global_start,
+        global_end,
     )
-
-    global_start = chunk.start_offset + local_start
-    global_end = chunk.start_offset + local_end
     snippet = document.raw_text[global_start:global_end]
 
     if query.casefold() not in snippet.casefold():
