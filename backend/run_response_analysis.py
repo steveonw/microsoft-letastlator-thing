@@ -6,6 +6,7 @@ from pathlib import Path
 from federal_register import fetch_and_normalize, load_fixture_and_normalize
 from foundry_client import FoundryChatClient, FoundryConfig
 from openai_client import OpenAIChatClient, OpenAIConfig
+from openrouter_client import OpenRouterChatClient, OpenRouterConfig
 from response_sources import (
     fetch_comments_for_docket,
     load_response_fixture,
@@ -63,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--provider",
-        choices=("foundry", "openai"),
+        choices=("foundry", "openai", "openrouter"),
         default="foundry",
     )
     parser.add_argument(
@@ -117,6 +118,9 @@ def main() -> None:
         if args.provider == "openai":
             client = OpenAIChatClient(OpenAIConfig.from_env())
             provider_name = "OpenAI API test provider"
+        elif args.provider == "openrouter":
+            client = OpenRouterChatClient(OpenRouterConfig.from_env())
+            provider_name = "OpenRouter test provider"
         else:
             client = FoundryChatClient(FoundryConfig.from_env())
             provider_name = "Microsoft Foundry"
