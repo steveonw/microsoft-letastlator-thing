@@ -25,6 +25,9 @@ jobs:
       - name: Run full backend test suite
         run: python -m unittest discover -s backend -p "test_*.py"
 
+      - name: Verify temporary API-key provider tests
+        run: python backend/test_openai_client.py
+
       - name: Validate shared sample
         run: python backend/validate_sample.py
 
