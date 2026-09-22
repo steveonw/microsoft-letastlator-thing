@@ -8,7 +8,7 @@ from federal_register import fetch_and_normalize, load_fixture_and_normalize
 
 
 DEFAULT_DOCUMENT_NUMBER = "2024-20529"
-DEFAULT_QUERY = "Covered U.S. persons are required to submit a notification"
+DEFAULT_QUERY = "Quarterly notification dates are as follows"
 DEFAULT_OUTPUT = Path("data/evidence/2024-20529.chunk3-demo.json")
 DEFAULT_FIXTURE = Path("data/federal-register/2024-20529.fixture.json")
 
