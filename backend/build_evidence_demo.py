@@ -4,12 +4,13 @@ import argparse
 from pathlib import Path
 
 from evidence import build_chunk3_demo_analysis
-from federal_register import fetch_and_normalize
+from federal_register import fetch_and_normalize, load_fixture_and_normalize
 
 
 DEFAULT_DOCUMENT_NUMBER = "2024-20529"
-DEFAULT_QUERY = "artificial intelligence"
+DEFAULT_QUERY = "Covered U.S. persons are required to submit a notification"
 DEFAULT_OUTPUT = Path("data/evidence/2024-20529.chunk3-demo.json")
+DEFAULT_FIXTURE = Path("data/federal-register/2024-20529.fixture.json")
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,19 +28,33 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--query",
         default=DEFAULT_QUERY,
-        help="Literal source phrase used to select inspectable evidence.",
+        help="Literal substantive source phrase used to select inspectable evidence.",
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=DEFAULT_OUTPUT,
     )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Use the checked-in Federal Register fixture instead of the network.",
+    )
+    parser.add_argument(
+        "--fixture",
+        type=Path,
+        default=DEFAULT_FIXTURE,
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    document = fetch_and_normalize(args.document_number)
+    if args.offline:
+        document = load_fixture_and_normalize(args.fixture)
+    else:
+        document = fetch_and_normalize(args.document_number)
+
     analysis = build_chunk3_demo_analysis(
         document,
         query=args.query,
@@ -58,6 +73,7 @@ def main() -> None:
         f"claim={claim.id}\n"
         f"evidence={evidence.id}\n"
         f"locator={evidence.locator}\n"
+        f"source={'offline fixture' if args.offline else 'live Federal Register'}\n"
         f"output={args.output}"
     )
 
