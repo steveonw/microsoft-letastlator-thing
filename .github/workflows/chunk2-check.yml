@@ -1,0 +1,62 @@
+name: Chunk 2 verification
+
+on:
+  push:
+    branches:
+      - feature/chunk-2-federal-register-ai
+  pull_request:
+    paths:
+      - "backend/federal_register.py"
+      - "backend/ingest_federal_register.py"
+      - "backend/test_federal_register.py"
+      - "data/federal-register/**"
+      - ".github/workflows/chunk2-check.yml"
+  workflow_dispatch:
+
+jobs:
+  verify-chunk-2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Run Federal Register normalization tests
+        run: python backend/test_federal_register.py
+
+      - name: Run live Federal Register ingestion
+        run: python backend/ingest_federal_register.py --output /tmp/policytrace-2024-20529.json
+
+      - name: Validate live normalized output
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("/tmp/policytrace-2024-20529.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+
+          assert data["document_number"] == "2024-20529"
+          assert data["title"]
+          assert data["raw_text"]
+          assert data["chunks"]
+
+          raw_text = data["raw_text"]
+          for chunk in data["chunks"]:
+              start = chunk["start_offset"]
+              end = chunk["end_offset"]
+              assert raw_text[start:end] == chunk["text"]
+
+          print(
+              f"Live ingestion verified: {len(data['raw_text'])} characters, "
+              f"{len(data['chunks'])} chunks"
+          )
+          PY
