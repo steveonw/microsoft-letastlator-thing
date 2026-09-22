@@ -34,6 +34,43 @@ def _strip_json_fence(value: str) -> str:
     return text
 
 
+def _extract_json(value: str) -> str:
+    """
+    Return one valid JSON value from model output.
+
+    Some routed models prepend prose or reasoning tags even when JSON mode was
+    requested. First accept clean JSON, then fall back to decoding from the first
+    JSON object/array marker. The returned string is normalized valid JSON.
+    """
+    text = _strip_json_fence(value)
+
+    try:
+        parsed = json.loads(text)
+        return json.dumps(parsed, ensure_ascii=False)
+    except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+    candidates = [
+        index
+        for marker in ("{", "[")
+        if (index := text.find(marker)) >= 0
+    ]
+
+    for start in sorted(candidates):
+        try:
+            parsed, _ = decoder.raw_decode(text[start:])
+            return json.dumps(parsed, ensure_ascii=False)
+        except json.JSONDecodeError:
+            continue
+
+    preview = text[:180].replace("\n", "\\n")
+    raise ValueError(
+        "OpenRouter model did not return extractable JSON. "
+        f"Response began with: {preview!r}"
+    )
+
+
 @dataclass(frozen=True)
 class OpenRouterConfig:
     api_key: str
@@ -73,6 +110,7 @@ class OpenRouterChatClient:
         payload = {
             "model": self.config.model,
             "response_format": {"type": "json_object"},
+            "provider": {"require_parameters": True},
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -118,13 +156,7 @@ class OpenRouterChatClient:
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError("OpenRouter returned empty model content")
 
-        cleaned = _strip_json_fence(content)
-
         try:
-            json.loads(cleaned)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                "OpenRouter model did not return valid JSON"
-            ) from exc
-
-        return cleaned
+            return _extract_json(content)
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
