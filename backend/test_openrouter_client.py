@@ -1,3 +1,4 @@
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -7,6 +8,7 @@ from openrouter_client import (
     DEFAULT_OPENROUTER_MODEL,
     OpenRouterConfig,
     _completion_url,
+    _extract_json,
     _strip_json_fence,
 )
 
@@ -57,6 +59,33 @@ class OpenRouterClientTests(unittest.TestCase):
             _strip_json_fence(fenced),
             "{\"plain_language\": []}",
         )
+
+    def test_extract_json_accepts_prose_prefix(self) -> None:
+        result = _extract_json(
+            "Here is the JSON you requested:\n"
+            "{\"plain_language\": [], \"major_provisions\": []}"
+        )
+        self.assertEqual(
+            json.loads(result),
+            {"plain_language": [], "major_provisions": []},
+        )
+
+    def test_extract_json_accepts_reasoning_tag_prefix(self) -> None:
+        result = _extract_json(
+            "<think>Need to answer in JSON.</think>\n"
+            "{\"plain_language\": []}"
+        )
+        self.assertEqual(
+            json.loads(result),
+            {"plain_language": []},
+        )
+
+    def test_extract_json_rejects_non_json_with_preview(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "Response began with",
+        ):
+            _extract_json("I could not produce the requested structure.")
 
 
 if __name__ == "__main__":
