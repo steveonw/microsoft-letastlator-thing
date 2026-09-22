@@ -282,7 +282,7 @@ PolicyTrace should help analysts move faster while keeping sources visible, unce
 
 ## Current backend milestone
 
-Chunks 1–6 now have backend implementations:
+Chunks 1–7 now have backend implementations:
 
 1. Shared analysis contract
 2. Federal Register ingestion
@@ -290,6 +290,7 @@ Chunks 1–6 now have backend implementations:
 4. Policy Interpreter
 5. Response & Viewpoint Analyst
 6. Claim Verifier
+7. Guided Mode human review loop
 
 The Claim Verifier can be run against an existing AnalysisRun:
 
@@ -299,3 +300,19 @@ python backend/run_claim_verifier.py --offline \
 ```
 
 For live model verification, use `--provider foundry`, `openai`, or `openrouter`. Microsoft Foundry remains the intended hackathon demo provider.
+
+
+## Guided Mode actions
+
+Chunk 7 adds explicit human-controlled review actions over an existing AnalysisRun. The workflow never advances automatically; only the `next` action changes the current step.
+
+```bash
+python backend/run_guided_review.py begin --input analysis.json
+python backend/run_guided_review.py clarify --input analysis.json --text "Keep proposed-rule wording."
+python backend/run_guided_review.py edit --input analysis.json --claim-id claim-1 --text "Revised claim text"
+python backend/run_guided_review.py flag --input analysis.json --claim-id claim-1 --text "Needs another look"
+python backend/run_guided_review.py verify --provider openrouter --input analysis.json --claim-id claim-1
+python backend/run_guided_review.py next --input analysis.json
+```
+
+The demo frontend mirrors these review controls and persists edits/notes/progress locally for the browser demo.
