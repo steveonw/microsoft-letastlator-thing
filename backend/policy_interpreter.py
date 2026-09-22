@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from evidence import evidence_for_query, source_from_federal_register
 from federal_register import NormalizedPolicyDocument
@@ -32,6 +32,14 @@ class StrictModel(BaseModel):
 class InterpreterFinding(StrictModel):
     text: str = Field(min_length=1)
     evidence_quotes: list[str] = Field(min_length=1, max_length=3)
+
+    @field_validator("evidence_quotes", mode="before")
+    @classmethod
+    def cap_evidence_quotes(cls, value):
+        if isinstance(value, list) and len(value) > 3:
+            return value[:3]
+        return value
+
     # Some routed models occasionally omit confidence despite prompt instructions.
     # Default conservatively to low so one missing advisory field does not abort
     # the whole analysis. Invalid explicit values still fail validation.
