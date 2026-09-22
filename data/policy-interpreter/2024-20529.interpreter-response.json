@@ -1,0 +1,37 @@
+{
+  "plain_language": [
+    {
+      "text": "The proposal describes an ongoing federal reporting process for certain development of advanced AI models.",
+      "evidence_quotes": [
+        "Section 4.2(a)(i) of Executive Order 14110 directs the Secretary of Commerce to require companies developing, or demonstrating an intent to develop, potential dual-use foundation AI models to provide certain information to the Federal Government on an ongoing basis."
+      ],
+      "confidence": "high"
+    }
+  ],
+  "major_provisions": [
+    {
+      "text": "Covered U.S. persons would make notifications to the Department on a quarterly basis when the described activities apply.",
+      "evidence_quotes": [
+        "Covered U.S. persons are required to submit a notification to the Department on a quarterly basis if the covered U.S. person engages in, or plans, within six months, to engage in applicable activities."
+      ],
+      "confidence": "high"
+    },
+    {
+      "text": "The source lists quarterly notification dates.",
+      "evidence_quotes": [
+        "Quarterly notification dates are as follows: Q1—April 15; Q2—July 15; Q3—October 15; Q4—January 15."
+      ],
+      "confidence": "high"
+    }
+  ],
+  "stakeholders": [
+    {
+      "text": "Covered U.S. persons engaged in the applicable activities are a directly affected group described by the proposal.",
+      "evidence_quotes": [
+        "Covered U.S. persons are required to submit a notification to the Department on a quarterly basis if the covered U.S. person engages in, or plans, within six months, to engage in applicable activities."
+      ],
+      "confidence": "high"
+    }
+  ],
+  "affected_programs": []
+}
