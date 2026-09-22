@@ -28,6 +28,9 @@ jobs:
       - name: Verify temporary API-key provider tests
         run: python backend/test_openai_client.py
 
+      - name: Verify OpenRouter provider tests
+        run: python backend/test_openrouter_client.py
+
       - name: Validate shared sample
         run: python backend/validate_sample.py
 
