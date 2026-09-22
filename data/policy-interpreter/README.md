@@ -78,6 +78,6 @@ Run:
 python backend/run_policy_interpreter.py
 ```
 
-`POLICYTRACE_FOUNDRY_ENDPOINT` may be the Foundry project/resource base endpoint or the full `/openai/v1/chat/completions` URL. PolicyTrace appends that route when necessary.
+`POLICYTRACE_FOUNDRY_ENDPOINT` should be a Microsoft Foundry Models resource endpoint such as `https://<resource>.openai.azure.com` or `https://<resource>.services.ai.azure.com`, or the corresponding `/openai/v1` base/full chat-completions URL. Project endpoints containing `/api/projects/` are intentionally rejected by this lightweight Chat Completions client.
 
 The default live path fetches Federal Register document `2024-20529` and sends only that official source to the Policy Interpreter.
