@@ -1,0 +1,87 @@
+{
+  "reasons_for_support": [
+    {
+      "text": "One analyzed public comment supports having a clear reporting framework because predictable deadlines may make compliance planning easier.",
+      "source_type": "public_opinion",
+      "evidence": [
+        {
+          "source_id": "response-synthetic-comment-001",
+          "quote": "I support a clear reporting framework because predictable deadlines can make compliance planning easier."
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "text": "The analyzed stakeholder statement supports consistent federal reporting expectations while also requesting more guidance.",
+      "source_type": "stakeholder_claim",
+      "evidence": [
+        {
+          "source_id": "response-synthetic-stakeholder-001",
+          "quote": "Our association supports consistent federal reporting expectations, but asks for more implementation guidance before covered organizations must operationalize recurring notifications."
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "concerns_objections": [
+    {
+      "text": "Two supplied public-comment records contain the same concern that recurring scope determinations could create administrative burden.",
+      "source_type": "public_opinion",
+      "evidence": [
+        {
+          "source_id": "response-synthetic-comment-002",
+          "quote": "The proposed reporting process could create substantial administrative burden for organizations that must repeatedly determine whether activities fall within scope."
+        },
+        {
+          "source_id": "response-synthetic-comment-003",
+          "quote": "The proposed reporting process could create substantial administrative burden for organizations that must repeatedly determine whether activities fall within scope."
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "questions_misunderstandings": [
+    {
+      "text": "The analyzed public comments request clarification about borderline cases and threshold tests.",
+      "source_type": "public_opinion",
+      "evidence": [
+        {
+          "source_id": "response-synthetic-comment-001",
+          "quote": "I would still like the agency to explain how small teams should handle borderline cases."
+        },
+        {
+          "source_id": "response-synthetic-comment-002",
+          "quote": "Please clarify the threshold tests."
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "mixed_neutral": [
+    {
+      "text": "The supplied factual-reporting record describes the analyzed material as containing both supportive and critical submissions.",
+      "source_type": "factual_reporting",
+      "evidence": [
+        {
+          "source_id": "response-synthetic-report-001",
+          "quote": "The analyzed docket material includes both supportive and critical submissions, with several records asking for additional clarification about implementation details."
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "minority_conflicting": [
+    {
+      "text": "Within the supplied material, support for consistent reporting expectations coexists with requests for more implementation guidance.",
+      "source_type": "stakeholder_claim",
+      "evidence": [
+        {
+          "source_id": "response-synthetic-stakeholder-001",
+          "quote": "Our association supports consistent federal reporting expectations, but asks for more implementation guidance before covered organizations must operationalize recurring notifications."
+        }
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "emerging_issues": []
+}

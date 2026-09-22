@@ -1,0 +1,96 @@
+# Chunk 5 — Response & Viewpoint Analyst
+
+Chunk 5 analyzes the reasons and viewpoints present in supplied response material without treating those materials as representative of the general public.
+
+The MVP starts with Regulations.gov public comments. The contract also supports selected stakeholder statements and factual reporting while keeping those source categories visibly separate.
+
+## What the analyst surfaces
+
+- reasons for support
+- concerns / objections
+- questions / misunderstandings
+- mixed / neutral reactions
+- minority / conflicting viewpoints
+- emerging issues only when dates/order actually support a time-based finding
+- a mandatory representativeness note
+
+The model is not asked for a single sentiment score.
+
+## Source boundaries
+
+Each finding must declare one response source type:
+
+- `public_opinion`
+- `stakeholder_claim`
+- `factual_reporting`
+
+A finding cannot blend those categories. Every finding must cite exact quotes and source IDs. Normal Python code rejects fabricated quotes, missing sources, and source-type mismatches before an `AnalysisRun` is accepted.
+
+Response claims remain:
+
+- `information_type = ai_interpretation`
+- `verification_status = needs_human_review`
+- `step.status = draft`
+
+Semantic support verification is still Chunk 6.
+
+## Duplicate and representativeness handling
+
+Every response source gets an exact-text duplicate cluster ID. The representativeness note reports both the number of supplied records and the number of unique exact-text clusters.
+
+This is intentionally conservative: exact duplicate clustering catches obvious repeated text, but it does not claim to identify all coordinated or templated campaigns.
+
+The system explicitly states that the analyzed material is not a representative sample of the general public.
+
+## PII / input safety
+
+External response text is treated as untrusted data. Before it is passed to the analyst, obvious email addresses and phone numbers appearing inside comment text are redacted. Regulations.gov identity fields such as first and last name are not imported into the PolicyTrace response record.
+
+## Offline demo
+
+The checked-in response fixtures are **synthetic**. They exist only to exercise the workflow without presenting invented statements as real public comments.
+
+Run:
+
+```bash
+python backend/run_response_analysis.py --offline
+```
+
+The output is written to:
+
+```text
+data/response-analysis/2024-20529.chunk5-analysis.json
+```
+
+## Live Regulations.gov + model run
+
+Regulations.gov requires an API key in the `X-Api-Key` header for live API access.
+
+Set:
+
+```bash
+export REGULATIONS_GOV_API_KEY="your-key"
+```
+
+Then use either the temporary OpenAI test provider:
+
+```bash
+export OPENAI_API_KEY="your-key"
+export POLICYTRACE_OPENAI_MODEL="your-model"
+python backend/run_response_analysis.py --provider openai
+```
+
+or Microsoft Foundry when the hackathon resource is available:
+
+```bash
+export POLICYTRACE_FOUNDRY_ENDPOINT="..."
+export POLICYTRACE_FOUNDRY_MODEL="..."
+export POLICYTRACE_FOUNDRY_API_KEY="..."
+python backend/run_response_analysis.py --provider foundry
+```
+
+The live default docket is `BIS-2024-0047`, linked to the historical 2024 BIS proposed-rule demo source.
+
+## Scope
+
+Chunk 5 does not claim that sampled comments represent population-wide opinion, does not infer a political recommendation, and does not decide what the policy itself says. Policy meaning stays in the Chunk 4 Policy Interpreter.

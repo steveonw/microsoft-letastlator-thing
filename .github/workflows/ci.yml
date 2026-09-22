@@ -49,6 +49,50 @@ jobs:
             --offline \
             --output /tmp/policytrace-offline-interpreter.json
 
+      - name: Verify offline Response & Viewpoint Analyst
+        run: |
+          python backend/run_response_analysis.py \
+            --offline \
+            --output /tmp/policytrace-offline-response.json
+
+      - name: Validate offline Response & Viewpoint output
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(
+              Path("/tmp/policytrace-offline-response.json").read_text(encoding="utf-8")
+          )
+          assert len(data["steps"]) == 2
+          assert data["steps"][0]["kind"] == "public_response"
+          assert data["steps"][1]["kind"] == "themes_viewpoints"
+          assert data["evidence"]
+
+          claims = [
+              claim
+              for step in data["steps"]
+              for claim in step["claims"]
+          ]
+          assert claims
+          assert all(
+              claim["information_type"] == "ai_interpretation"
+              for claim in claims
+          )
+          assert all(
+              claim["verification_status"] == "needs_human_review"
+              for claim in claims
+          )
+          assert "not a representative sample" in data["steps"][0]["ai_output"]
+
+          source_map = {source["id"]: source for source in data["sources"]}
+          for item in data["evidence"]:
+              source = source_map[item["source_id"]]
+              assert source["raw_text"][item["start_offset"]:item["end_offset"]] == item["snippet"]
+
+          print("Offline Response & Viewpoint Analyst verified.")
+          PY
+
       - name: Validate offline Policy Interpreter output
         run: |
           python - <<'PY'
