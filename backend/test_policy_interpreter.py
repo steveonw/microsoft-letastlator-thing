@@ -2,7 +2,7 @@ import unittest
 from datetime import date
 
 from federal_register import NormalizedChunk, NormalizedPolicyDocument
-from models import InformationType, StepStatus, VerificationStatus
+from models import InformationType, StepKind, StepStatus, VerificationStatus
 from policy_interpreter import (
     InterpreterFinding,
     PolicyInterpreterOutput,
@@ -109,19 +109,96 @@ class PolicyInterpreterTests(unittest.TestCase):
                 item.snippet,
             )
 
-    def test_nonexistent_model_quote_is_rejected(self) -> None:
+    def test_whitespace_flattened_model_quote_is_grounded(self) -> None:
+        wrapped_text = (
+            "SUPPLEMENTARY INFORMATION:\n\n"
+            "The proposal requires quarterly notification\n"
+            "by covered persons."
+        )
+        wrapped_document = NormalizedPolicyDocument(
+            document_number="demo-wrap",
+            title="Wrapped demo",
+            document_type="Proposed Rule",
+            raw_text=wrapped_text,
+            chunks=[
+                NormalizedChunk(
+                    id="demo-wrap-chunk-001",
+                    sequence=1,
+                    heading="SUPPLEMENTARY INFORMATION",
+                    text=wrapped_text,
+                    start_offset=0,
+                    end_offset=len(wrapped_text),
+                )
+            ],
+        )
         output = PolicyInterpreterOutput(
             plain_language=[
                 InterpreterFinding(
-                    text="Unsupported model claim.",
-                    evidence_quotes=["This quote does not exist."],
-                    confidence="low",
+                    text="The proposal requires quarterly notification.",
+                    evidence_quotes=[
+                        "The proposal requires quarterly notification by covered persons."
+                    ],
+                    confidence="high",
                 )
             ]
         )
 
-        with self.assertRaises(ValueError):
-            build_analysis_from_interpreter_output(document(), output)
+        analysis = build_analysis_from_interpreter_output(
+            wrapped_document,
+            output,
+        )
+
+        claim = analysis.steps[0].claims[0]
+        self.assertEqual(len(claim.evidence_ids), 1)
+        evidence = analysis.evidence[0]
+        self.assertIn("\n", evidence.snippet)
+        self.assertEqual(
+            wrapped_text[evidence.start_offset:evidence.end_offset],
+            evidence.snippet,
+        )
+
+    def test_nonexistent_model_quote_isolated_to_finding(self) -> None:
+        output = PolicyInterpreterOutput(
+            plain_language=[
+                InterpreterFinding(
+                    text="Grounded model claim.",
+                    evidence_quotes=[
+                        "The proposal requires quarterly notification by covered persons."
+                    ],
+                    confidence="high",
+                ),
+                InterpreterFinding(
+                    text="Claim with a broken citation.",
+                    evidence_quotes=["This quote does not exist."],
+                    confidence="low",
+                ),
+            ]
+        )
+
+        analysis = build_analysis_from_interpreter_output(document(), output)
+
+        claims = analysis.steps[0].claims
+        self.assertEqual(len(claims), 2)
+        self.assertTrue(claims[0].evidence_ids)
+        self.assertEqual(claims[1].evidence_ids, [])
+        self.assertEqual(
+            claims[1].verification_status,
+            VerificationStatus.NEEDS_HUMAN_REVIEW,
+        )
+        self.assertIn("Citation integrity is incomplete", claims[1].verification_note)
+
+    def test_affected_programs_has_distinct_step_kind(self) -> None:
+        analysis = build_analysis_from_interpreter_output(
+            document(),
+            PolicyInterpreterOutput(),
+        )
+        affected_programs = next(
+            step for step in analysis.steps if step.id == "step-affected-programs"
+        )
+        self.assertEqual(
+            affected_programs.kind,
+            StepKind.AFFECTED_PROGRAMS,
+        )
 
 
 if __name__ == "__main__":

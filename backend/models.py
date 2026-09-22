@@ -59,6 +59,7 @@ class StepKind(str, Enum):
     POLICY_UNDERSTANDING = "policy_understanding"
     MAJOR_PROVISIONS = "major_provisions"
     STAKEHOLDERS = "stakeholders"
+    AFFECTED_PROGRAMS = "affected_programs"
     PUBLIC_RESPONSE = "public_response"
     THEMES_VIEWPOINTS = "themes_viewpoints"
     VERIFICATION = "verification"

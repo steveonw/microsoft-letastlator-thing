@@ -189,12 +189,56 @@ class ResponseAnalystTests(unittest.TestCase):
                 evidence.snippet,
             )
 
-    def test_fabricated_quote_is_rejected(self) -> None:
+    def test_whitespace_flattened_quote_is_grounded(self) -> None:
+        source = public_source(
+            "a",
+            "The commenter requests clearer\nimplementation guidance.",
+        )
+        output = ResponseViewpointOutput(
+            questions_misunderstandings=[
+                ViewpointFinding(
+                    text="One supplied comment requests clearer implementation guidance.",
+                    source_type="public_opinion",
+                    evidence=[
+                        ResponseEvidenceRef(
+                            source_id=source.id,
+                            quote="The commenter requests clearer implementation guidance.",
+                        )
+                    ],
+                    confidence="high",
+                )
+            ]
+        )
+
+        analysis = build_response_analysis(policy_document(), [source], output)
+
+        claim = analysis.steps[0].claims[0]
+        self.assertEqual(len(claim.evidence_ids), 1)
+        evidence = analysis.evidence[0]
+        self.assertIn("\n", evidence.snippet)
+        self.assertEqual(
+            source.raw_text[evidence.start_offset:evidence.end_offset],
+            evidence.snippet,
+        )
+
+    def test_fabricated_quote_isolated_to_finding(self) -> None:
         source = public_source("a", "Real supplied text.")
+        good_source = public_source("b", "A real concern appears here.")
         output = ResponseViewpointOutput(
             concerns_objections=[
                 ViewpointFinding(
-                    text="A concern.",
+                    text="A grounded concern.",
+                    source_type="public_opinion",
+                    evidence=[
+                        ResponseEvidenceRef(
+                            source_id=good_source.id,
+                            quote="A real concern appears here.",
+                        )
+                    ],
+                    confidence="high",
+                ),
+                ViewpointFinding(
+                    text="A concern with a broken citation.",
                     source_type="public_opinion",
                     evidence=[
                         ResponseEvidenceRef(
@@ -203,12 +247,25 @@ class ResponseAnalystTests(unittest.TestCase):
                         )
                     ],
                     confidence="low",
-                )
+                ),
             ]
         )
 
-        with self.assertRaises(ValueError):
-            build_response_analysis(policy_document(), [source], output)
+        analysis = build_response_analysis(
+            policy_document(),
+            [source, good_source],
+            output,
+        )
+
+        claims = analysis.steps[0].claims
+        self.assertEqual(len(claims), 2)
+        self.assertTrue(claims[0].evidence_ids)
+        self.assertEqual(claims[1].evidence_ids, [])
+        self.assertEqual(
+            claims[1].verification_status,
+            VerificationStatus.NEEDS_HUMAN_REVIEW,
+        )
+        self.assertIn("Citation integrity is incomplete", claims[1].verification_note)
 
     def test_source_type_mismatch_is_rejected(self) -> None:
         source = public_source("a", "Real supplied text.")

@@ -37,20 +37,35 @@ def source_from_federal_register(document: NormalizedPolicyDocument) -> Source:
     )
 
 
+def find_quote_span(text: str, query: str) -> tuple[int, int]:
+    """
+    Locate a quoted passage while tolerating whitespace-only formatting changes.
+
+    Models often flatten hard line wraps into spaces. Matching token-by-token with
+    a whitespace regex keeps punctuation/wording exact while allowing spaces,
+    tabs, and newlines to differ. Returned offsets always point into the original
+    source text.
+    """
+    tokens = query.split()
+    if not tokens:
+        raise ValueError("query must not be empty")
+
+    whitespace = r"\s+"
+    pattern = re.compile(
+        whitespace.join(re.escape(token) for token in tokens),
+        flags=re.IGNORECASE,
+    )
+    match = pattern.search(text)
+    if match is None:
+        raise ValueError(f"query not found in source text: {query!r}")
+
+    return match.start(), match.end()
+
 def _find_match_in_source(
     document: NormalizedPolicyDocument,
     query: str,
 ) -> tuple[NormalizedChunk, int, int]:
-    if not query:
-        raise ValueError("query must not be empty")
-
-    pattern = re.compile(re.escape(query), flags=re.IGNORECASE)
-    match = pattern.search(document.raw_text)
-    if match is None:
-        raise ValueError(f"query not found in normalized source text: {query!r}")
-
-    match_start = match.start()
-    match_end = match.end()
+    match_start, match_end = find_quote_span(document.raw_text, query)
 
     for chunk in document.chunks:
         if chunk.start_offset <= match_start < chunk.end_offset:
@@ -123,10 +138,10 @@ def evidence_for_query(
     retrieved_at: datetime | None = None,
 ) -> Evidence:
     """
-    Create exact, inspectable evidence around a literal query.
+    Create exact, inspectable evidence around a source-grounded query.
 
-    Retrieval is intentionally deterministic in Chunk 3: find a real passage first,
-    store exact offsets, then let later AI steps reason over that evidence.
+    Matching tolerates whitespace-only formatting changes, but the stored evidence
+    is always sliced verbatim from the original source using exact offsets.
     """
     if context_chars < 0:
         raise ValueError("context_chars must be non-negative")
@@ -145,8 +160,10 @@ def evidence_for_query(
     )
     snippet = document.raw_text[global_start:global_end]
 
-    if query.casefold() not in snippet.casefold():
-        raise ValueError("evidence window lost the requested query")
+    try:
+        find_quote_span(snippet, query)
+    except ValueError as exc:
+        raise ValueError("evidence window lost the requested query") from exc
     if not snippet:
         raise ValueError("evidence snippet must not be empty")
 
