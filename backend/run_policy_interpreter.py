@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from foundry_client import FoundryChatClient, FoundryConfig
+from openai_client import OpenAIChatClient, OpenAIConfig
 from federal_register import fetch_and_normalize, load_fixture_and_normalize
 from policy_interpreter import (
     PolicyInterpreterOutput,
@@ -43,6 +44,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--provider",
+        choices=("foundry", "openai"),
+        default="foundry",
+        help=(
+            "Live model provider. 'openai' is a temporary API-key test path; "
+            "'foundry' remains the hackathon target."
+        ),
+    )
+    parser.add_argument(
         "--source-fixture",
         type=Path,
         default=DEFAULT_SOURCE_FIXTURE,
@@ -70,12 +80,18 @@ def main() -> None:
         source_mode = "offline fixtures"
     else:
         document = fetch_and_normalize(args.document_number)
-        client = FoundryChatClient(FoundryConfig.from_env())
+
+        if args.provider == "openai":
+            client = OpenAIChatClient(OpenAIConfig.from_env())
+            source_mode = "live Federal Register + OpenAI API test provider"
+        else:
+            client = FoundryChatClient(FoundryConfig.from_env())
+            source_mode = "live Federal Register + Microsoft Foundry"
+
         analysis = run_policy_interpreter(
             document,
             client.complete_json,
         )
-        source_mode = "live Federal Register + Microsoft Foundry"
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
