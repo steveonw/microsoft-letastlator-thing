@@ -113,14 +113,17 @@ def _claim_from_finding(
     claim_id: str,
     finding: InterpreterFinding,
     evidence_ids: list[str],
-    citation_failures: int = 0,
+    citation_failures: list[str] | None = None,
 ) -> Claim:
-    if citation_failures:
+    failures = citation_failures or []
+    if failures:
         note = (
             "AI-generated interpretation. "
-            f"{citation_failures} cited quote(s) could not be located in the official "
+            f"{len(failures)} cited quote(s) could not be located in the official "
             "source after whitespace-tolerant matching. Citation integrity is incomplete; "
-            "semantic support has not been assessed and requires human review."
+            "semantic support has not been assessed and requires human review. "
+            "Failed citation diagnostics: "
+            + " | ".join(failures)
         )
     else:
         note = (
@@ -149,9 +152,9 @@ def build_analysis_from_interpreter_output(
 
     evidence_by_id = {}
 
-    def evidence_ids_for(finding: InterpreterFinding) -> tuple[list[str], int]:
+    def evidence_ids_for(finding: InterpreterFinding) -> tuple[list[str], list[str]]:
         result: list[str] = []
-        failures = 0
+        failures: list[str] = []
         for quote in finding.evidence_quotes:
             try:
                 evidence = evidence_for_query(
@@ -159,8 +162,8 @@ def build_analysis_from_interpreter_output(
                     quote,
                     context_chars=120,
                 )
-            except ValueError:
-                failures += 1
+            except ValueError as exc:
+                failures.append(f"quote={quote!r}; reason={exc}")
                 continue
             evidence_by_id[evidence.id] = evidence
             result.append(evidence.id)
@@ -193,7 +196,7 @@ def build_analysis_from_interpreter_output(
         ),
         (
             "step-affected-programs",
-            StepKind.STAKEHOLDERS,
+            StepKind.AFFECTED_PROGRAMS,
             "Affected programs",
             ["step-major-provisions"],
             output.affected_programs,
