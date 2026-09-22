@@ -7,7 +7,7 @@ from evidence import (
     source_from_federal_register,
 )
 from federal_register import NormalizedChunk, NormalizedPolicyDocument
-from models import InformationType
+from models import InformationType, StepStatus, VerificationStatus
 
 
 RAW_TEXT = (
@@ -69,6 +69,36 @@ class EvidenceLayerTests(unittest.TestCase):
         self.assertIn("89 FR 73612", evidence.locator)
         self.assertIn("2024-20529-chunk-001", evidence.locator)
 
+    def test_zero_context_keeps_complete_query(self) -> None:
+        document = make_document()
+        evidence = evidence_for_query(
+            document,
+            "artificial intelligence",
+            context_chars=0,
+            retrieved_at=datetime(2026, 9, 22, tzinfo=timezone.utc),
+        )
+
+        self.assertIn("artificial intelligence", evidence.snippet.lower())
+        self.assertEqual(
+            document.raw_text[evidence.start_offset:evidence.end_offset],
+            evidence.snippet,
+        )
+
+    def test_case_insensitive_match_keeps_exact_offsets(self) -> None:
+        document = make_document()
+        evidence = evidence_for_query(
+            document,
+            "ARTIFICIAL INTELLIGENCE",
+            context_chars=0,
+            retrieved_at=datetime(2026, 9, 22, tzinfo=timezone.utc),
+        )
+
+        self.assertIn("artificial intelligence", evidence.snippet.lower())
+        self.assertEqual(
+            document.raw_text[evidence.start_offset:evidence.end_offset],
+            evidence.snippet,
+        )
+
     def test_missing_query_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             evidence_for_query(make_document(), "phrase that is not present")
@@ -83,6 +113,11 @@ class EvidenceLayerTests(unittest.TestCase):
         evidence = analysis.evidence[0]
 
         self.assertEqual(claim.evidence_ids, [evidence.id])
+        self.assertEqual(
+            claim.verification_status,
+            VerificationStatus.NEEDS_HUMAN_REVIEW,
+        )
+        self.assertEqual(analysis.steps[0].status, StepStatus.DRAFT)
         self.assertEqual(evidence.source_id, analysis.sources[0].id)
         self.assertEqual(
             analysis.sources[0].raw_text[
