@@ -105,3 +105,41 @@ On Windows Git Bash, the same `export` syntax works.
 This is intentionally a **testing adapter**, not a replacement for Microsoft Foundry. The downstream PolicyTrace contract is unchanged, so switching back to Foundry later should not require rewriting the policy-analysis pipeline.
 
 Never commit an API key. Keep it in the shell environment or a local ignored `.env`-style file.
+
+
+## OpenRouter free-model test provider
+
+PolicyTrace can also use OpenRouter while Microsoft Foundry access is pending.
+
+By default, the OpenRouter adapter uses `openrouter/free`, OpenRouter's free-model router. OpenRouter chooses among currently available free models and filters for capabilities required by the request.
+
+Set only your OpenRouter key:
+
+```bash
+export OPENROUTER_API_KEY="your-key"
+python backend/run_policy_interpreter.py --provider openrouter
+```
+
+The default model is:
+
+```text
+openrouter/free
+```
+
+To pin a specific OpenRouter model instead, override:
+
+```bash
+export POLICYTRACE_OPENROUTER_MODEL="provider/model:free"
+python backend/run_policy_interpreter.py --provider openrouter
+```
+
+Chunk 5 uses the same provider flag, but live Regulations.gov ingestion also requires:
+
+```bash
+export REGULATIONS_GOV_API_KEY="your-regulations-gov-key"
+python backend/run_response_analysis.py --provider openrouter
+```
+
+Free-model availability can change and the `openrouter/free` router may select different models across runs. This path is for inexpensive local integration testing; Microsoft Foundry remains the hackathon target.
+
+Never commit `OPENROUTER_API_KEY` or any other API key.
