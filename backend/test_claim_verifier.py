@@ -184,13 +184,11 @@ class ClaimVerifierTests(unittest.TestCase):
         def model_call(system_prompt: str, user_prompt: str) -> str:
             raise AssertionError("model should not see integrity failures")
 
-        verified = verify_analysis(analysis, model_call)
-        claim = verified.steps[0].claims[0]
-        self.assertEqual(
-            claim.verification_status,
-            VerificationStatus.NEEDS_HUMAN_REVIEW,
-        )
-        self.assertIn("citation-integrity gate failed", claim.verification_note)
+        with self.assertRaisesRegex(
+            ValueError,
+            "deterministic AnalysisRun integrity validation",
+        ):
+            verify_analysis(analysis, model_call)
 
     def test_rerun_replaces_verification_step_and_increments_version(self) -> None:
         analysis = analysis_with_claim()
