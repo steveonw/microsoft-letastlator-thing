@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 
 from federal_register import NormalizedChunk, NormalizedPolicyDocument
 from models import (
@@ -39,37 +40,41 @@ def source_from_federal_register(document: NormalizedPolicyDocument) -> Source:
 def _find_chunk_with_query(
     document: NormalizedPolicyDocument,
     query: str,
-) -> tuple[NormalizedChunk, int]:
-    needle = query.casefold()
-    if not needle:
+) -> tuple[NormalizedChunk, int, int]:
+    if not query:
         raise ValueError("query must not be empty")
 
+    pattern = re.compile(re.escape(query), flags=re.IGNORECASE)
     for chunk in document.chunks:
-        index = chunk.text.casefold().find(needle)
-        if index >= 0:
-            return chunk, index
+        match = pattern.search(chunk.text)
+        if match is not None:
+            return chunk, match.start(), match.end()
 
     raise ValueError(f"query not found in normalized source text: {query!r}")
 
 
-def _trim_window_to_word_boundaries(
+def _expand_window_to_word_boundaries(
     text: str,
     start: int,
     end: int,
 ) -> tuple[int, int]:
-    if start > 0:
-        next_space = text.find(" ", start)
-        next_newline = text.find("\n", start)
-        candidates = [value for value in (next_space, next_newline) if value >= 0]
-        if candidates:
-            start = min(candidates) + 1
+    """Expand a context window without ever trimming away the matched query."""
+    if start > 0 and not text[start - 1].isspace() and not text[start].isspace():
+        previous_space = text.rfind(" ", 0, start)
+        previous_newline = text.rfind("\n", 0, start)
+        boundary = max(previous_space, previous_newline)
+        start = boundary + 1 if boundary >= 0 else 0
 
-    if end < len(text):
-        previous_space = text.rfind(" ", 0, end)
-        previous_newline = text.rfind("\n", 0, end)
-        end = max(previous_space, previous_newline)
-        if end <= start:
-            end = min(len(text), start + 1)
+    if (
+        end < len(text)
+        and end > 0
+        and not text[end - 1].isspace()
+        and not text[end].isspace()
+    ):
+        next_space = text.find(" ", end)
+        next_newline = text.find("\n", end)
+        candidates = [value for value in (next_space, next_newline) if value >= 0]
+        end = min(candidates) if candidates else len(text)
 
     while start < end and text[start].isspace():
         start += 1
@@ -111,12 +116,14 @@ def evidence_for_query(
     if context_chars < 0:
         raise ValueError("context_chars must be non-negative")
 
-    chunk, local_match_start = _find_chunk_with_query(document, query)
-    local_match_end = local_match_start + len(query)
+    chunk, local_match_start, local_match_end = _find_chunk_with_query(
+        document,
+        query,
+    )
 
     local_start = max(0, local_match_start - context_chars)
     local_end = min(len(chunk.text), local_match_end + context_chars)
-    local_start, local_end = _trim_window_to_word_boundaries(
+    local_start, local_end = _expand_window_to_word_boundaries(
         chunk.text,
         local_start,
         local_end,
