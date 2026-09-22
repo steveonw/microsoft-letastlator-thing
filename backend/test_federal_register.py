@@ -57,6 +57,35 @@ class FederalRegisterNormalizerTests(unittest.TestCase):
                 chunk.text,
             )
 
+    def test_realistic_headings_are_carried_into_chunks(self) -> None:
+        text = (
+            "SUPPLEMENTARY INFORMATION:\n\n"
+            + ("Background material. " * 40)
+            + "\n\nI. Quarterly Notification Schedule\n\n"
+            + ("Covered U.S. persons must report. " * 40)
+        )
+        chunks = chunk_text("demo", text, max_chars=500)
+
+        self.assertTrue(all(chunk.heading for chunk in chunks))
+        self.assertTrue(
+            any("Quarterly Notification Schedule" in chunk.heading for chunk in chunks)
+        )
+
+    def test_regulations_dot_gov_url_is_inferred(self) -> None:
+        metadata = dict(SAMPLE_METADATA)
+        metadata["regulations_dot_gov_url"] = None
+        text = SAMPLE_TEXT + (
+            "\nADDRESSES: The regulations.gov ID for this proposed rule is: "
+            "BIS-2024-0047.\n"
+        )
+
+        document = normalize_document(metadata, text, max_chunk_chars=500)
+
+        self.assertEqual(
+            str(document.regulations_dot_gov_url),
+            "https://www.regulations.gov/docket/BIS-2024-0047",
+        )
+
     def test_chunk_ids_are_stable_and_ordered(self) -> None:
         text = ("Paragraph one. " * 70) + "\n\n" + ("Paragraph two. " * 70)
         chunks = chunk_text("2024-20529", text, max_chars=500)

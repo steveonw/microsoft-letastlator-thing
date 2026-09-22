@@ -99,6 +99,45 @@ class EvidenceLayerTests(unittest.TestCase):
             evidence.snippet,
         )
 
+    def test_query_can_span_chunk_boundary(self) -> None:
+        text = "Alpha policy phrase crosses boundary here."
+        document = NormalizedPolicyDocument(
+            document_number="demo",
+            title="Boundary demo",
+            raw_text=text,
+            chunks=[
+                NormalizedChunk(
+                    id="demo-chunk-001",
+                    sequence=1,
+                    heading="Section A",
+                    text=text[:20],
+                    start_offset=0,
+                    end_offset=20,
+                ),
+                NormalizedChunk(
+                    id="demo-chunk-002",
+                    sequence=2,
+                    heading="Section B",
+                    text=text[20:],
+                    start_offset=20,
+                    end_offset=len(text),
+                ),
+            ],
+        )
+
+        evidence = evidence_for_query(
+            document,
+            "phrase crosses",
+            context_chars=0,
+            retrieved_at=datetime(2026, 9, 22, tzinfo=timezone.utc),
+        )
+
+        self.assertIn("phrase crosses", evidence.snippet)
+        self.assertEqual(
+            text[evidence.start_offset:evidence.end_offset],
+            evidence.snippet,
+        )
+
     def test_missing_query_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             evidence_for_query(make_document(), "phrase that is not present")

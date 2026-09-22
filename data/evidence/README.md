@@ -47,7 +47,7 @@ The demo:
 
 1. fetches Federal Register document `2024-20529`
 2. normalizes it using the Chunk 2 pipeline
-3. finds a real passage containing `artificial intelligence`
+3. finds a substantive reporting-requirement passage rather than the document masthead
 4. creates a shared `Source`
 5. creates an exact `Evidence` record
 6. creates a narrow demo `Claim` whose `evidence_ids` points to that evidence
@@ -66,3 +66,16 @@ The demo claim is intentionally not a substantive policy interpretation. Chunk 3
 The evidence object and offset rules are designed so Azure AI Search can later replace the simple literal retrieval step without changing the rest of the contract.
 
 For the hackathon MVP, getting exact traceable evidence working first is more important than making Azure AI Search a blocker for Chunk 3.
+
+
+## Offline demo
+
+For judging or local development without relying on the Federal Register service:
+
+```bash
+python backend/build_evidence_demo.py --offline
+```
+
+The offline path uses the checked-in Federal Register fixture and exercises the same Source/Evidence/Claim contract.
+
+Evidence lookup searches the normalized source text directly rather than assuming a phrase fits inside one chunk, so a supporting phrase can cross a chunk boundary while still retaining exact global offsets.

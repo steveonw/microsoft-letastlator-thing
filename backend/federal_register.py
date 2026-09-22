@@ -5,6 +5,7 @@ import json
 import re
 from datetime import date
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
@@ -46,6 +47,11 @@ class NormalizedPolicyDocument(StrictModel):
     raw_text_url: str | None = None
     raw_text: str
     chunks: list[NormalizedChunk] = Field(default_factory=list)
+
+
+class OfflineFederalRegisterFixture(StrictModel):
+    metadata: dict[str, Any]
+    raw_text: str
 
 
 class _TextExtractor(HTMLParser):
@@ -119,27 +125,86 @@ def _list_of_strings(value: Any) -> list[str]:
     return [str(value)]
 
 
-def _guess_heading(chunk_text: str) -> str | None:
-    lines = [line.strip() for line in chunk_text.splitlines() if line.strip()]
-    for line in lines[:8]:
-        if len(line) > 140:
-            continue
-        if line.startswith("§ "):
-            return line
-        if re.match(r"^(?:[IVXLC]+\.|[A-Z]\.|\d+\.)\s+", line):
-            return line
-        if line.lower() in {
-            "background",
-            "discussion of the proposed rule",
-            "request for comments",
-            "rulemaking requirements",
-            "list of subjects in 15 cfr part 702",
-        }:
-            return line
-        letters = [char for char in line if char.isalpha()]
-        if letters and len(line) >= 4 and all(char.isupper() for char in letters):
-            return line
+def _infer_regulations_dot_gov_url(text: str) -> str | None:
+    patterns = [
+        r"regulations\.gov ID for this proposed rule is:\s*([A-Z]+[-–]\d{4}[-–]\d+)",
+        r"regulations\.gov.*?([A-Z]+[-–]\d{4}[-–]\d+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            docket_id = match.group(1).replace("–", "-")
+            return f"https://www.regulations.gov/docket/{docket_id}"
     return None
+
+
+def _looks_like_heading(line: str) -> bool:
+    candidate = line.strip()
+    if len(candidate) < 2 or len(candidate) > 180:
+        return False
+
+    normalized = candidate.rstrip(":").strip().lower()
+    if normalized in {
+        "summary",
+        "dates",
+        "addresses",
+        "for further information contact",
+        "supplementary information",
+        "background",
+        "discussion of the proposed rule",
+        "request for comments",
+        "rulemaking requirements",
+        "list of subjects in 15 cfr part 702",
+    }:
+        return True
+
+    if candidate.startswith("§ "):
+        return True
+
+    if re.match(r"^(?:Sec\.\s+\d+|§\s*\d+|[IVXLC]+\.|[A-Z]\.|\d+\.)\s+", candidate):
+        return True
+
+    letters = [char for char in candidate if char.isalpha()]
+    if (
+        len(candidate) <= 120
+        and len(letters) >= 4
+        and all(char.isupper() for char in letters)
+    ):
+        return True
+
+    return False
+
+
+def _heading_candidates(text: str) -> list[tuple[int, str]]:
+    candidates: list[tuple[int, str]] = []
+    offset = 0
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.strip()
+        if line and _looks_like_heading(line):
+            candidates.append((offset, line))
+        offset += len(raw_line)
+    return candidates
+
+
+def _heading_for_offset(
+    candidates: list[tuple[int, str]],
+    start_offset: int,
+    chunk_text_value: str,
+) -> str:
+    nearest: str | None = None
+    for offset, heading in candidates:
+        if offset > start_offset:
+            break
+        nearest = heading
+
+    if nearest:
+        return nearest
+
+    for line in chunk_text_value.splitlines()[:10]:
+        if _looks_like_heading(line):
+            return line.strip()
+
+    return "Federal Register document body"
 
 
 def chunk_text(
@@ -158,6 +223,7 @@ def chunk_text(
     start = 0
     sequence = 1
     text_length = len(text)
+    headings = _heading_candidates(text)
 
     while start < text_length:
         while start < text_length and text[start].isspace():
@@ -179,7 +245,11 @@ def chunk_text(
             ]
             best = max(candidates)
             if best >= 0:
-                delimiter_width = 2 if search_window[best:best + 2] in {"\n\n", ". "} else 1
+                delimiter_width = (
+                    2
+                    if search_window[best:best + 2] in {"\n\n", ". "}
+                    else 1
+                )
                 end = lower_bound + best + delimiter_width
 
         while end > start and text[end - 1].isspace():
@@ -193,7 +263,7 @@ def chunk_text(
             NormalizedChunk(
                 id=f"{document_number}-chunk-{sequence:03d}",
                 sequence=sequence,
-                heading=_guess_heading(chunk_value),
+                heading=_heading_for_offset(headings, start, chunk_value),
                 text=chunk_value,
                 start_offset=start,
                 end_offset=end,
@@ -222,16 +292,43 @@ def normalize_document(
         agency_names=_agency_names(metadata),
         publication_date=_parse_date(metadata.get("publication_date")),
         comments_close_on=_parse_date(metadata.get("comments_close_on")),
-        docket_ids=_list_of_strings(metadata.get("docket_ids") or metadata.get("docket_id")),
-        regulation_id_numbers=_list_of_strings(metadata.get("regulation_id_numbers")),
+        docket_ids=_list_of_strings(
+            metadata.get("docket_ids") or metadata.get("docket_id")
+        ),
+        regulation_id_numbers=_list_of_strings(
+            metadata.get("regulation_id_numbers")
+        ),
         citation=metadata.get("citation"),
         cfr_references=metadata.get("cfr_references") or [],
         html_url=metadata.get("html_url"),
         pdf_url=metadata.get("pdf_url"),
-        regulations_dot_gov_url=metadata.get("regulations_dot_gov_url"),
+        regulations_dot_gov_url=(
+            metadata.get("regulations_dot_gov_url")
+            or _infer_regulations_dot_gov_url(text)
+        ),
         raw_text_url=metadata.get("raw_text_url"),
         raw_text=text,
-        chunks=chunk_text(document_number, text, max_chars=max_chunk_chars),
+        chunks=chunk_text(
+            document_number,
+            text,
+            max_chars=max_chunk_chars,
+        ),
+    )
+
+
+def load_fixture_and_normalize(
+    fixture_path: str | Path,
+    *,
+    max_chunk_chars: int = 4500,
+) -> NormalizedPolicyDocument:
+    path = Path(fixture_path)
+    fixture = OfflineFederalRegisterFixture.model_validate_json(
+        path.read_text(encoding="utf-8")
+    )
+    return normalize_document(
+        fixture.metadata,
+        fixture.raw_text,
+        max_chunk_chars=max_chunk_chars,
     )
 
 
