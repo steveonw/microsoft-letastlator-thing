@@ -5,6 +5,7 @@ from pathlib import Path
 
 from foundry_client import FoundryChatClient, FoundryConfig
 from openai_client import OpenAIChatClient, OpenAIConfig
+from openrouter_client import OpenRouterChatClient, OpenRouterConfig
 from federal_register import fetch_and_normalize, load_fixture_and_normalize
 from policy_interpreter import (
     PolicyInterpreterOutput,
@@ -45,11 +46,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--provider",
-        choices=("foundry", "openai"),
+        choices=("foundry", "openai", "openrouter"),
         default="foundry",
         help=(
-            "Live model provider. 'openai' is a temporary API-key test path; "
-            "'foundry' remains the hackathon target."
+            "Live model provider. 'openai' and 'openrouter' are temporary API-key "
+            "test paths; 'foundry' remains the hackathon target."
         ),
     )
     parser.add_argument(
@@ -84,6 +85,9 @@ def main() -> None:
         if args.provider == "openai":
             client = OpenAIChatClient(OpenAIConfig.from_env())
             source_mode = "live Federal Register + OpenAI API test provider"
+        elif args.provider == "openrouter":
+            client = OpenRouterChatClient(OpenRouterConfig.from_env())
+            source_mode = "live Federal Register + OpenRouter test provider"
         else:
             client = FoundryChatClient(FoundryConfig.from_env())
             source_mode = "live Federal Register + Microsoft Foundry"
