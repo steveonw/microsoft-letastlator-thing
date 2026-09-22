@@ -99,6 +99,40 @@ class EvidenceLayerTests(unittest.TestCase):
             evidence.snippet,
         )
 
+    def test_whitespace_variation_matches_source_and_keeps_exact_offsets(self) -> None:
+        text = "The reporting requirement applies to advanced artificial\nintelligence models."
+        document = NormalizedPolicyDocument(
+            document_number="whitespace-demo",
+            title="Whitespace demo",
+            raw_text=text,
+            chunks=[
+                NormalizedChunk(
+                    id="whitespace-demo-chunk-001",
+                    sequence=1,
+                    heading="Demo",
+                    text=text,
+                    start_offset=0,
+                    end_offset=len(text),
+                )
+            ],
+        )
+
+        evidence = evidence_for_query(
+            document,
+            "advanced artificial intelligence models.",
+            context_chars=0,
+            retrieved_at=datetime(2026, 9, 22, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(
+            evidence.snippet,
+            "advanced artificial\nintelligence models.",
+        )
+        self.assertEqual(
+            text[evidence.start_offset:evidence.end_offset],
+            evidence.snippet,
+        )
+
     def test_query_can_span_chunk_boundary(self) -> None:
         text = "Alpha policy phrase crosses boundary here."
         document = NormalizedPolicyDocument(
