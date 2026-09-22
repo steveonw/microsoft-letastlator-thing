@@ -12,5 +12,6 @@
   "federal_register_api_url": "https://www.federalregister.gov/api/v1/documents/2024-20529.json",
   "regulations_gov_url": "https://www.regulations.gov/docket/BIS-2024-0047",
   "purpose": "Chunk 2 demo source: a manageable AI-focused proposed rule with a public comment docket that can support later public-response analysis.",
-  "status_note": "Use as a historical proposed-rule demo source. Do not present it as a currently operative final rule."
+  "status_note": "Use as a historical proposed-rule demo source. Do not present it as a currently operative final rule.",
+  "regulations_gov_linkage": "Curated fallback; the normalizer also infers the docket URL from official Federal Register text when API metadata omits it."
 }
