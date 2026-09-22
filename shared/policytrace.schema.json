@@ -15,45 +15,15 @@
     "final_review_status"
   ],
   "properties": {
-    "schema_version": {
-      "type": "string",
-      "const": "0.1.0"
-    },
-    "id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "mode": {
-      "type": "string",
-      "enum": ["guided", "rush"]
-    },
-    "policy": {
-      "$ref": "#/$defs/policy"
-    },
-    "sources": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/source"
-      }
-    },
-    "evidence": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/evidence"
-      }
-    },
-    "steps": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/analysisStep"
-      }
-    },
-    "current_step_id": {
-      "type": ["string", "null"]
-    },
-    "final_review_status": {
-      "$ref": "#/$defs/humanReviewStatus"
-    }
+    "schema_version": { "type": "string", "const": "0.2.0" },
+    "id": { "type": "string", "minLength": 1 },
+    "mode": { "type": "string", "enum": ["guided", "rush"] },
+    "policy": { "$ref": "#/$defs/policy" },
+    "sources": { "type": "array", "items": { "$ref": "#/$defs/source" } },
+    "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+    "steps": { "type": "array", "items": { "$ref": "#/$defs/analysisStep" } },
+    "current_step_id": { "type": ["string", "null"] },
+    "final_review_status": { "$ref": "#/$defs/humanReviewStatus" }
   },
   "$defs": {
     "informationType": {
@@ -81,119 +51,71 @@
     },
     "stepStatus": {
       "type": "string",
-      "enum": [
-        "draft",
-        "verified",
-        "human_edited",
-        "approved",
-        "needs_refresh"
-      ]
+      "enum": ["draft", "verified", "needs_refresh"]
     },
     "humanReviewStatus": {
       "type": "string",
+      "enum": ["not_reviewed", "in_review", "reviewed", "approved"]
+    },
+    "piiRedactionStatus": {
+      "type": "string",
+      "enum": ["not_checked", "not_detected", "redacted", "not_applicable"]
+    },
+    "stepKind": {
+      "type": "string",
       "enum": [
-        "not_reviewed",
-        "in_review",
-        "reviewed",
-        "approved"
+        "policy_understanding",
+        "major_provisions",
+        "stakeholders",
+        "public_response",
+        "themes_viewpoints",
+        "verification",
+        "draft_brief"
       ]
     },
-    "confidence": {
-      "type": "string",
-      "enum": ["low", "medium", "high"]
-    },
+    "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
     "policy": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "title", "jurisdiction", "source_ids"],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "title": {
-          "type": "string",
-          "minLength": 1
-        },
-        "jurisdiction": {
-          "type": "string",
-          "minLength": 1
-        },
-        "version": {
-          "type": ["string", "null"]
-        },
-        "source_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "jurisdiction": { "type": "string", "minLength": 1 },
+        "version": { "type": ["string", "null"] },
+        "source_ids": { "type": "array", "items": { "type": "string" } }
       }
     },
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "title", "information_type"],
+      "required": ["id", "title", "information_type", "pii_redaction_status"],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "title": {
-          "type": "string",
-          "minLength": 1
-        },
-        "information_type": {
-          "$ref": "#/$defs/informationType"
-        },
-        "url": {
-          "type": ["string", "null"],
-          "format": "uri"
-        },
-        "agency": {
-          "type": ["string", "null"]
-        },
-        "published_at": {
-          "type": ["string", "null"],
-          "format": "date"
-        },
-        "version": {
-          "type": ["string", "null"]
-        },
-        "raw_text": {
-          "type": ["string", "null"]
-        }
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "information_type": { "$ref": "#/$defs/informationType" },
+        "url": { "type": ["string", "null"], "format": "uri" },
+        "agency": { "type": ["string", "null"] },
+        "published_at": { "type": ["string", "null"], "format": "date" },
+        "submitted_at": { "type": ["string", "null"], "format": "date-time" },
+        "version": { "type": ["string", "null"] },
+        "raw_text": { "type": ["string", "null"] },
+        "pii_redaction_status": { "$ref": "#/$defs/piiRedactionStatus" },
+        "duplicate_cluster_id": { "type": ["string", "null"] }
       }
     },
     "evidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id",
-        "source_id",
-        "snippet",
-        "retrieved_at"
-      ],
+      "required": ["id", "source_id", "snippet", "retrieved_at"],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "source_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "snippet": {
-          "type": "string",
-          "minLength": 1
-        },
-        "locator": {
-          "type": ["string", "null"]
-        },
-        "retrieved_at": {
-          "type": "string",
-          "format": "date-time"
-        }
+        "id": { "type": "string", "minLength": 1 },
+        "source_id": { "type": "string", "minLength": 1 },
+        "snippet": { "type": "string", "minLength": 1 },
+        "locator": { "type": ["string", "null"] },
+        "start_offset": { "type": ["integer", "null"], "minimum": 0 },
+        "end_offset": { "type": ["integer", "null"], "minimum": 0 },
+        "retrieved_at": { "type": "string", "format": "date-time" }
       }
     },
     "claim": {
@@ -208,62 +130,25 @@
         "confidence"
       ],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "text": {
-          "type": "string",
-          "minLength": 1
-        },
-        "information_type": {
-          "$ref": "#/$defs/informationType"
-        },
-        "evidence_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "verification_status": {
-          "$ref": "#/$defs/verificationStatus"
-        },
-        "confidence": {
-          "$ref": "#/$defs/confidence"
-        }
+        "id": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 },
+        "original_text": { "type": ["string", "null"] },
+        "information_type": { "$ref": "#/$defs/informationType" },
+        "evidence_ids": { "type": "array", "items": { "type": "string" } },
+        "verification_status": { "$ref": "#/$defs/verificationStatus" },
+        "verification_note": { "type": ["string", "null"] },
+        "confidence": { "$ref": "#/$defs/confidence" }
       }
     },
     "humanReview": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "status",
-        "notes",
-        "flagged_claim_ids",
-        "edited_claim_ids"
-      ],
+      "required": ["status", "notes", "flagged_claim_ids", "edited_claim_ids"],
       "properties": {
-        "status": {
-          "$ref": "#/$defs/humanReviewStatus"
-        },
-        "notes": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "flagged_claim_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "edited_claim_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
+        "status": { "$ref": "#/$defs/humanReviewStatus" },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "flagged_claim_ids": { "type": "array", "items": { "type": "string" } },
+        "edited_claim_ids": { "type": "array", "items": { "type": "string" } }
       }
     },
     "analysisStep": {
@@ -280,43 +165,15 @@
         "version"
       ],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "kind": {
-          "type": "string",
-          "minLength": 1
-        },
-        "title": {
-          "type": "string",
-          "minLength": 1
-        },
-        "status": {
-          "$ref": "#/$defs/stepStatus"
-        },
-        "depends_on": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "claims": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/claim"
-          }
-        },
-        "ai_output": {
-          "type": ["string", "null"]
-        },
-        "human_review": {
-          "$ref": "#/$defs/humanReview"
-        },
-        "version": {
-          "type": "integer",
-          "minimum": 1
-        }
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/stepKind" },
+        "title": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/stepStatus" },
+        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "claims": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "ai_output": { "type": ["string", "null"] },
+        "human_review": { "$ref": "#/$defs/humanReview" },
+        "version": { "type": "integer", "minimum": 1 }
       }
     }
   }
