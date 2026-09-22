@@ -125,6 +125,19 @@ def _list_of_strings(value: Any) -> list[str]:
     return [str(value)]
 
 
+def _infer_regulations_dot_gov_url(text: str) -> str | None:
+    patterns = [
+        r"regulations\.gov ID for this proposed rule is:\s*([A-Z]+[-–]\d{4}[-–]\d+)",
+        r"regulations\.gov.*?([A-Z]+[-–]\d{4}[-–]\d+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            docket_id = match.group(1).replace("–", "-")
+            return f"https://www.regulations.gov/docket/{docket_id}"
+    return None
+
+
 def _looks_like_heading(line: str) -> bool:
     candidate = line.strip()
     if len(candidate) < 2 or len(candidate) > 180:
@@ -289,7 +302,10 @@ def normalize_document(
         cfr_references=metadata.get("cfr_references") or [],
         html_url=metadata.get("html_url"),
         pdf_url=metadata.get("pdf_url"),
-        regulations_dot_gov_url=metadata.get("regulations_dot_gov_url"),
+        regulations_dot_gov_url=(
+            metadata.get("regulations_dot_gov_url")
+            or _infer_regulations_dot_gov_url(text)
+        ),
         raw_text_url=metadata.get("raw_text_url"),
         raw_text=text,
         chunks=chunk_text(
