@@ -12,13 +12,13 @@
       <div class="brand">PolicyTrace</div>
       <div class="subtitle">Evidence-grounded policy analysis</div>
     </div>
-    <div class="demo-pill">FICTIONAL DEMO DATA</div>
+    <div class="top-actions"><div class="demo-pill">FICTIONAL DEMO DATA</div><button id="reset-btn" type="button" class="reset-button">Reset review</button></div>
   </header>
 
   <main class="page">
     <section class="hero">
       <div>
-        <p class="eyebrow">Chunk 1 proof of concept</p>
+        <p class="eyebrow">Guided Mode review</p>
         <h1 id="policy-title">Loading policy…</h1>
         <p id="policy-meta" class="muted"></p>
       </div>
@@ -70,12 +70,13 @@
         <strong id="review-status">—</strong>
       </div>
       <div class="review-actions">
-        <button type="button" disabled>Clarify</button>
-        <button type="button" disabled>Edit</button>
-        <button type="button" disabled>Verify</button>
-        <button type="button" disabled>Next</button>
+        <button id="clarify-btn" type="button">Clarify</button>
+        <button id="edit-btn" type="button">Edit</button>
+        <button id="verify-btn" type="button">Verify</button>
+        <button id="flag-btn" type="button">Flag for Review</button>
+        <button id="next-btn" type="button" class="primary">Next</button>
       </div>
-      <p class="hint">Buttons are visual placeholders for later chunks.</p>
+      <p id="review-notes" class="hint">Only Next advances the workflow.</p>
     </section>
   </main>
 
