@@ -40,6 +40,42 @@ jobs:
             --offline \
             --output /tmp/policytrace-offline-evidence.json
 
+      - name: Verify offline Policy Interpreter
+        run: |
+          python backend/run_policy_interpreter.py \
+            --offline \
+            --output /tmp/policytrace-offline-interpreter.json
+
+      - name: Validate offline Policy Interpreter output
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(
+              Path("/tmp/policytrace-offline-interpreter.json").read_text(encoding="utf-8")
+          )
+          assert len(data["steps"]) == 4
+          assert data["evidence"]
+
+          claims = [
+              claim
+              for step in data["steps"]
+              for claim in step["claims"]
+          ]
+          assert claims
+          assert all(
+              claim["information_type"] == "ai_interpretation"
+              for claim in claims
+          )
+          assert all(
+              claim["verification_status"] == "needs_human_review"
+              for claim in claims
+          )
+
+          print("Offline Policy Interpreter verified.")
+          PY
+
       - name: Validate offline evidence offsets and locator
         run: |
           python - <<'PY'
