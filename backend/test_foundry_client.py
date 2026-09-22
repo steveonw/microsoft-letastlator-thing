@@ -21,7 +21,7 @@ class FoundryClientTests(unittest.TestCase):
 
     def test_completion_url_keeps_full_route(self) -> None:
         value = (
-            "https://example.services.ai.azure.com/api/projects/demo"
+            "https://example.services.ai.azure.com"
             "/openai/v1/chat/completions"
         )
         self.assertEqual(_completion_url(value), value)
