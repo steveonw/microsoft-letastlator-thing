@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from evidence import source_from_federal_register
+from evidence import find_quote_span, source_from_federal_register
 from federal_register import NormalizedPolicyDocument
 from models import (
     AnalysisMode,
@@ -137,14 +136,12 @@ def _exact_quote_evidence(
     if source.raw_text is None:
         raise ValueError(f"{source.id} has no raw_text for quote validation")
 
-    match = re.search(re.escape(quote), source.raw_text, flags=re.IGNORECASE)
-    if match is None:
+    try:
+        start, end = find_quote_span(source.raw_text, quote)
+    except ValueError as exc:
         raise ValueError(
             f"quoted evidence was not found in source {source.id}: {quote!r}"
-        )
-
-    start = match.start()
-    end = match.end()
+        ) from exc
     snippet = source.raw_text[start:end]
     timestamp = retrieved_at or datetime.now(timezone.utc)
 
@@ -230,17 +227,28 @@ def _claim_for_finding(
     claim_id: str,
     finding: ViewpointFinding,
     evidence_ids: list[str],
+    citation_failures: int = 0,
 ) -> Claim:
+    if citation_failures:
+        note = (
+            "AI-generated viewpoint analysis. "
+            f"{citation_failures} cited quote(s) could not be located in the cited "
+            "source after whitespace-tolerant matching. Citation integrity is incomplete; "
+            "semantic support has not been assessed and requires human review."
+        )
+    else:
+        note = (
+            "AI-generated viewpoint analysis with deterministic citation integrity "
+            "checked; semantic support remains subject to the separate verifier and human review."
+        )
+
     return Claim(
         id=claim_id,
         text=finding.text,
         information_type=InformationType.AI_INTERPRETATION,
         evidence_ids=evidence_ids,
         verification_status=VerificationStatus.NEEDS_HUMAN_REVIEW,
-        verification_note=(
-            "AI-generated viewpoint analysis with exact source quotes checked; "
-            "semantic support remains subject to the separate verifier and human review."
-        ),
+        verification_note=note,
         confidence=finding.confidence,
     )
 
@@ -266,9 +274,14 @@ def build_response_analysis(
         for index, finding in enumerate(findings, start=1):
             _validate_finding_source_types(finding, source_map)
             evidence_ids: list[str] = []
+            citation_failures = 0
             for ref in finding.evidence:
                 source = source_map[ref.source_id]
-                evidence = _exact_quote_evidence(source, ref.quote)
+                try:
+                    evidence = _exact_quote_evidence(source, ref.quote)
+                except ValueError:
+                    citation_failures += 1
+                    continue
                 evidence_by_id[evidence.id] = evidence
                 evidence_ids.append(evidence.id)
 
@@ -277,6 +290,7 @@ def build_response_analysis(
                     claim_id=f"claim-{prefix}-{index:03d}",
                     finding=finding,
                     evidence_ids=evidence_ids,
+                    citation_failures=citation_failures,
                 )
             )
         return claims

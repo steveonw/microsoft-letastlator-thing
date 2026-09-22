@@ -113,17 +113,28 @@ def _claim_from_finding(
     claim_id: str,
     finding: InterpreterFinding,
     evidence_ids: list[str],
+    citation_failures: int = 0,
 ) -> Claim:
+    if citation_failures:
+        note = (
+            "AI-generated interpretation. "
+            f"{citation_failures} cited quote(s) could not be located in the official "
+            "source after whitespace-tolerant matching. Citation integrity is incomplete; "
+            "semantic support has not been assessed and requires human review."
+        )
+    else:
+        note = (
+            "AI-generated interpretation with deterministic citation integrity "
+            "checked; semantic verification is deferred to Chunk 6."
+        )
+
     return Claim(
         id=claim_id,
         text=finding.text,
         information_type=InformationType.AI_INTERPRETATION,
         evidence_ids=evidence_ids,
         verification_status=VerificationStatus.NEEDS_HUMAN_REVIEW,
-        verification_note=(
-            "AI-generated interpretation with deterministic citation integrity "
-            "checked; semantic verification is deferred to Chunk 6."
-        ),
+        verification_note=note,
         confidence=finding.confidence,
     )
 
@@ -138,17 +149,22 @@ def build_analysis_from_interpreter_output(
 
     evidence_by_id = {}
 
-    def evidence_ids_for(finding: InterpreterFinding) -> list[str]:
+    def evidence_ids_for(finding: InterpreterFinding) -> tuple[list[str], int]:
         result: list[str] = []
+        failures = 0
         for quote in finding.evidence_quotes:
-            evidence = evidence_for_query(
-                document,
-                quote,
-                context_chars=120,
-            )
+            try:
+                evidence = evidence_for_query(
+                    document,
+                    quote,
+                    context_chars=120,
+                )
+            except ValueError:
+                failures += 1
+                continue
             evidence_by_id[evidence.id] = evidence
             result.append(evidence.id)
-        return result
+        return result, failures
 
     step_specs = [
         (
@@ -189,11 +205,13 @@ def build_analysis_from_interpreter_output(
     for step_id, kind, title, depends_on, findings, prefix in step_specs:
         claims: list[Claim] = []
         for index, finding in enumerate(findings, start=1):
+            evidence_ids, citation_failures = evidence_ids_for(finding)
             claims.append(
                 _claim_from_finding(
                     claim_id=f"claim-{prefix}-{index:03d}",
                     finding=finding,
-                    evidence_ids=evidence_ids_for(finding),
+                    evidence_ids=evidence_ids,
+                    citation_failures=citation_failures,
                 )
             )
 
