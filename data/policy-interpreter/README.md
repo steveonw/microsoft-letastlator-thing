@@ -81,3 +81,27 @@ python backend/run_policy_interpreter.py
 `POLICYTRACE_FOUNDRY_ENDPOINT` should be a Microsoft Foundry Models resource endpoint such as `https://<resource>.openai.azure.com` or `https://<resource>.services.ai.azure.com`, or the corresponding `/openai/v1` base/full chat-completions URL. Project endpoints containing `/api/projects/` are intentionally rejected by this lightweight Chat Completions client.
 
 The default live path fetches Federal Register document `2024-20529` and sends only that official source to the Policy Interpreter.
+
+
+## Temporary API-key test provider
+
+While hackathon Azure/Foundry access is pending, PolicyTrace can exercise the same live Policy Interpreter contract with the OpenAI API.
+
+Set these environment variables locally:
+
+```bash
+export OPENAI_API_KEY="your-key"
+export POLICYTRACE_OPENAI_MODEL="your-model"
+```
+
+Then run:
+
+```bash
+python backend/run_policy_interpreter.py --provider openai
+```
+
+On Windows Git Bash, the same `export` syntax works.
+
+This is intentionally a **testing adapter**, not a replacement for Microsoft Foundry. The downstream PolicyTrace contract is unchanged, so switching back to Foundry later should not require rewriting the policy-analysis pipeline.
+
+Never commit an API key. Keep it in the shell environment or a local ignored `.env`-style file.
