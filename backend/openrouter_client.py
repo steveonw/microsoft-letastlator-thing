@@ -102,21 +102,23 @@ class OpenRouterConfig:
         )
 
 
+def _is_parameter_routing_error(code: int, detail: str) -> bool:
+    if code not in {400, 404}:
+        return False
+
+    lowered = detail.lower()
+    return (
+        "filter by parameters" in lowered
+        or "no endpoints found that can handle the requested parameters" in lowered
+        or "\"failed_routing_step\":\"Filter by Parameters\"".lower() in lowered
+    )
+
+
 class OpenRouterChatClient:
     def __init__(self, config: OpenRouterConfig) -> None:
         self.config = config
 
-    def complete_json(self, system_prompt: str, user_prompt: str) -> str:
-        payload = {
-            "model": self.config.model,
-            "response_format": {"type": "json_object"},
-            "provider": {"require_parameters": True},
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        }
-
+    def _post(self, payload: dict[str, object]) -> dict[str, object]:
         request = Request(
             _completion_url(self.config.base_url),
             data=json.dumps(payload).encode("utf-8"),
@@ -134,16 +136,64 @@ class OpenRouterChatClient:
                 request,
                 timeout=self.config.timeout_seconds,
             ) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(
-                f"OpenRouter request failed with HTTP {exc.code}: {detail}"
-            ) from exc
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError:
+            raise
         except URLError as exc:
             raise RuntimeError(
                 f"OpenRouter request failed: {exc.reason}"
             ) from exc
+
+    def complete_json(self, system_prompt: str, user_prompt: str) -> str:
+        base_payload: dict[str, object] = {
+            "model": self.config.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+
+        attempts = [
+            {
+                **base_payload,
+                "response_format": {"type": "json_object"},
+                "provider": {"require_parameters": True},
+            },
+            {
+                **base_payload,
+                "response_format": {"type": "json_object"},
+            },
+            base_payload,
+        ]
+
+        body: dict[str, object] | None = None
+        last_error: HTTPError | None = None
+        last_detail = ""
+
+        for attempt_index, payload in enumerate(attempts):
+            try:
+                body = self._post(payload)
+                break
+            except HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                last_error = exc
+                last_detail = detail
+
+                if not _is_parameter_routing_error(exc.code, detail):
+                    raise RuntimeError(
+                        f"OpenRouter request failed with HTTP {exc.code}: {detail}"
+                    ) from exc
+
+                if attempt_index == len(attempts) - 1:
+                    break
+
+        if body is None:
+            assert last_error is not None
+            raise RuntimeError(
+                "OpenRouter could not find a compatible endpoint after retrying "
+                "with relaxed parameter requirements. "
+                f"Last HTTP {last_error.code}: {last_detail}"
+            ) from last_error
 
         try:
             content = body["choices"][0]["message"]["content"]
