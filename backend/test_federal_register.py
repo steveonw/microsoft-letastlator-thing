@@ -1,0 +1,72 @@
+import unittest
+
+from federal_register import chunk_text, normalize_document
+
+
+SAMPLE_METADATA = {
+    "document_number": "2024-20529",
+    "title": "Establishment of Reporting Requirements for the Development of Advanced Artificial Intelligence Models and Computing Clusters",
+    "type": "Proposed Rule",
+    "action": "Proposed rule; request for comment",
+    "agency_names": ["Bureau of Industry and Security"],
+    "publication_date": "2024-09-11",
+    "comments_close_on": "2024-10-11",
+    "docket_ids": ["240905-0231"],
+    "regulation_id_numbers": ["0694-AJ55"],
+    "citation": "89 FR 73612",
+    "cfr_references": [{"title": 15, "part": 702}],
+    "html_url": "https://www.federalregister.gov/d/2024-20529",
+    "pdf_url": "https://www.govinfo.gov/example.pdf",
+    "regulations_dot_gov_url": "https://www.regulations.gov/docket/BIS-2024-0047",
+    "raw_text_url": "https://www.govinfo.gov/example.txt",
+}
+
+SAMPLE_TEXT = """DEPARTMENT OF COMMERCE
+
+Background
+
+This proposed rule concerns reporting about advanced artificial intelligence models and computing clusters.
+
+Discussion of the Proposed Rule
+
+Covered entities would provide notifications when specified technical thresholds are met.
+
+Request for Comments
+
+The agency requests comment on notification timing, collection methods, and technical thresholds.
+"""
+
+
+class FederalRegisterNormalizerTests(unittest.TestCase):
+    def test_metadata_and_text_normalize(self) -> None:
+        document = normalize_document(SAMPLE_METADATA, SAMPLE_TEXT, max_chunk_chars=500)
+
+        self.assertEqual(document.document_number, "2024-20529")
+        self.assertEqual(document.publication_date.isoformat(), "2024-09-11")
+        self.assertEqual(document.comments_close_on.isoformat(), "2024-10-11")
+        self.assertEqual(document.docket_ids, ["240905-0231"])
+        self.assertTrue(document.chunks)
+
+    def test_chunk_offsets_round_trip(self) -> None:
+        text = ("Background\n\n" + ("AI policy sentence. " * 80)).strip()
+        chunks = chunk_text("demo", text, max_chars=500)
+
+        for chunk in chunks:
+            self.assertEqual(
+                text[chunk.start_offset:chunk.end_offset],
+                chunk.text,
+            )
+
+    def test_chunk_ids_are_stable_and_ordered(self) -> None:
+        text = ("Paragraph one. " * 70) + "\n\n" + ("Paragraph two. " * 70)
+        chunks = chunk_text("2024-20529", text, max_chars=500)
+
+        self.assertEqual(chunks[0].id, "2024-20529-chunk-001")
+        self.assertEqual(
+            [chunk.sequence for chunk in chunks],
+            list(range(1, len(chunks) + 1)),
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
