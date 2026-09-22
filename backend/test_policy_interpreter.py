@@ -2,7 +2,7 @@ import unittest
 from datetime import date
 
 from federal_register import NormalizedChunk, NormalizedPolicyDocument
-from models import InformationType, StepStatus, VerificationStatus
+from models import InformationType, StepKind, StepStatus, VerificationStatus
 from policy_interpreter import (
     InterpreterFinding,
     PolicyInterpreterOutput,
@@ -185,6 +185,27 @@ class PolicyInterpreterTests(unittest.TestCase):
         self.assertIn(
             "Citation integrity is incomplete",
             claims[1].verification_note,
+        )
+        self.assertIn(
+            "This quote does not exist.",
+            claims[1].verification_note,
+        )
+        self.assertIn(
+            "query not found in source text",
+            claims[1].verification_note,
+        )
+
+    def test_affected_programs_has_distinct_step_kind(self) -> None:
+        analysis = build_analysis_from_interpreter_output(
+            document(),
+            PolicyInterpreterOutput(),
+        )
+        affected_programs = next(
+            step for step in analysis.steps if step.id == "step-affected-programs"
+        )
+        self.assertEqual(
+            affected_programs.kind,
+            StepKind.AFFECTED_PROGRAMS,
         )
 
 
