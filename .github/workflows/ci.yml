@@ -96,6 +96,44 @@ jobs:
           print("Offline Response & Viewpoint Analyst verified.")
           PY
 
+      - name: Verify offline Claim Verifier
+        run: |
+          python backend/run_claim_verifier.py \
+            --offline \
+            --input /tmp/policytrace-offline-interpreter.json \
+            --output /tmp/policytrace-offline-verified.json
+
+      - name: Validate offline Claim Verifier output
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(
+              Path("/tmp/policytrace-offline-verified.json").read_text(encoding="utf-8")
+          )
+          verification = data["steps"][-1]
+          assert verification["kind"] == "verification"
+          assert data["current_step_id"] == "step-verification"
+
+          claims = [
+              claim
+              for step in data["steps"]
+              if step["kind"] != "verification"
+              for claim in step["claims"]
+          ]
+          assert claims
+          assert all(
+              claim["verification_status"] == "supported"
+              for claim in claims
+          )
+          assert all(
+              claim["verification_note"].startswith("Semantic verification:")
+              for claim in claims
+          )
+          print("Offline Claim Verifier verified.")
+          PY
+
       - name: Validate offline Policy Interpreter output
         run: |
           python - <<'PY'
