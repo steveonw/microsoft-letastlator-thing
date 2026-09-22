@@ -434,3 +434,12 @@ h3 {
     grid-column: auto;
   }
 }
+
+.top-actions { display:flex; align-items:center; gap:8px; }
+.reset-button { border:1px solid #41526c; background:#18263a; color:#dbeafe; padding:7px 10px; border-radius:8px; cursor:pointer; }
+.step-button:disabled { cursor:not-allowed; opacity:.45; }
+.review-actions button:not(:disabled) { color:#344054; cursor:pointer; background:#fff; }
+.review-actions button.primary:not(:disabled) { background:#1f6feb; border-color:#1f6feb; color:#fff; }
+.claim-card.flagged { border-color:#d97706; box-shadow:0 0 0 3px rgba(217,119,6,.08); }
+.verification-note { margin-top:10px; padding:10px; background:#f8fafc; border-radius:8px; color:#475467; font-size:12px; line-height:1.45; }
+.source-link { display:inline-block; margin-top:10px; font-size:12px; font-weight:700; color:#1f6feb; text-decoration:none; }
