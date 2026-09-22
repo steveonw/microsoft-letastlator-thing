@@ -37,21 +37,38 @@ def source_from_federal_register(document: NormalizedPolicyDocument) -> Source:
     )
 
 
+def _token_pattern(token: str) -> str:
+    """
+    Match one query token while tolerating Federal Register hard wraps.
+
+    Federal Register plain text can insert a newline after punctuation inside a
+    token, for example "floating-\npoint" or "OP/\ns". Allow whitespace only
+    after hyphens and slashes; all characters and punctuation remain otherwise
+    exact.
+    """
+    parts: list[str] = []
+    for char in token:
+        parts.append(re.escape(char))
+        if char in {"-", "/"}:
+            parts.append(r"\s*")
+    return "".join(parts)
+
+
 def find_quote_span(text: str, query: str) -> tuple[int, int]:
     """
-    Locate a quoted passage while tolerating whitespace-only formatting changes.
+    Locate a quoted passage while tolerating narrow source-formatting changes.
 
-    Models often flatten hard line wraps into spaces. Matching token-by-token with
-    a whitespace regex keeps punctuation and wording exact while allowing spaces,
-    tabs, and newlines to differ. Returned offsets always point into the original
-    source text.
+    Models often flatten hard line wraps into spaces. Matching token-by-token
+    allows normal whitespace differences and Federal Register hard wraps after
+    hyphens/slashes, while keeping wording and punctuation exact. Returned
+    offsets always point into the original source text.
     """
     tokens = query.split()
     if not tokens:
         raise ValueError("query must not be empty")
 
     pattern = re.compile(
-        r"\s+".join(re.escape(token) for token in tokens),
+        r"\s+".join(_token_pattern(token) for token in tokens),
         flags=re.IGNORECASE,
     )
     match = pattern.search(text)
@@ -140,8 +157,8 @@ def evidence_for_query(
     """
     Create exact, inspectable evidence around a source-grounded query.
 
-    Matching tolerates whitespace-only formatting changes, but stored evidence is
-    always sliced verbatim from the original source using exact offsets.
+    Matching tolerates narrow formatting changes from hard line wraps, but stored
+    evidence is always sliced verbatim from the original source using exact offsets.
     """
     if context_chars < 0:
         raise ValueError("context_chars must be non-negative")
