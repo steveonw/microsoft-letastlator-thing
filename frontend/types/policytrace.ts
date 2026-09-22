@@ -38,6 +38,7 @@ export type StepKind =
   | "policy_understanding"
   | "major_provisions"
   | "stakeholders"
+  | "affected_programs"
   | "public_response"
   | "themes_viewpoints"
   | "verification"

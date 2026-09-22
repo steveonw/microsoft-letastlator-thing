@@ -269,6 +269,14 @@ class ResponseAnalystTests(unittest.TestCase):
             "Citation integrity is incomplete",
             claims[1].verification_note,
         )
+        self.assertIn(
+            "Fabricated text.",
+            claims[1].verification_note,
+        )
+        self.assertIn(
+            source.id,
+            claims[1].verification_note,
+        )
 
     def test_source_type_mismatch_is_rejected(self) -> None:
         source = public_source("a", "Real supplied text.")
