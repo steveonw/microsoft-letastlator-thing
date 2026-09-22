@@ -185,9 +185,13 @@ def build_chunk3_demo_analysis(
             "The selected Federal Register source contains text discussing "
             f"{query}."
         ),
-        information_type=InformationType.AI_INTERPRETATION,
+        information_type=InformationType.UNVERIFIED,
         evidence_ids=[evidence.id],
-        verification_status=VerificationStatus.SUPPORTED,
+        verification_status=VerificationStatus.NEEDS_HUMAN_REVIEW,
+        verification_note=(
+            "Citation integrity is established, but semantic support is not "
+            "verified until Chunk 6."
+        ),
         confidence="high",
     )
 
@@ -195,7 +199,7 @@ def build_chunk3_demo_analysis(
         id="step-real-source-evidence",
         kind=StepKind.POLICY_UNDERSTANDING,
         title="Inspect real-source evidence",
-        status=StepStatus.VERIFIED,
+        status=StepStatus.DRAFT,
         depends_on=[],
         claims=[claim],
         ai_output=(
