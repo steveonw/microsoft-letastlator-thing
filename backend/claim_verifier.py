@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from models import (
     AnalysisRun,
@@ -175,10 +175,21 @@ def verify_analysis(
     """
     Verify every non-verification-step claim without silently rewriting claim text.
 
-    Deterministic citation-integrity failures are short-circuited to
-    NEEDS_HUMAN_REVIEW and never sent to the semantic verifier.
+    The full AnalysisRun contract is revalidated before any model call. A malformed
+    evidence record cannot be converted into a valid verification result merely by
+    changing claim status; the verifier rejects that input before semantic analysis.
+    Valid claims with no cited evidence are still short-circuited to
+    NEEDS_HUMAN_REVIEW without calling the model.
     """
-    verified = analysis.model_copy(deep=True)
+    try:
+        verified = AnalysisRun.model_validate(
+            analysis.model_dump(mode="python")
+        )
+    except ValidationError as exc:
+        raise ValueError(
+            "claim verification input failed deterministic AnalysisRun "
+            "integrity validation"
+        ) from exc
 
     previous_verification_steps = [
         step for step in verified.steps if step.kind == StepKind.VERIFICATION
