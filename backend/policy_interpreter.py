@@ -32,7 +32,10 @@ class StrictModel(BaseModel):
 class InterpreterFinding(StrictModel):
     text: str = Field(min_length=1)
     evidence_quotes: list[str] = Field(min_length=1, max_length=3)
-    confidence: Confidence
+    # Some routed models occasionally omit confidence despite prompt instructions.
+    # Default conservatively to low so one missing advisory field does not abort
+    # the whole analysis. Invalid explicit values still fail validation.
+    confidence: Confidence = "low"
 
 
 class PolicyInterpreterOutput(StrictModel):
@@ -53,12 +56,14 @@ Rules:
 - Preserve the document's status. Do not describe a proposal as an operative final rule.
 - Do not recommend, endorse, oppose, rank, or score the policy.
 - Do not infer motives or intent beyond what the official source explicitly supports.
+- Every finding in every section must include all three fields: text, evidence_quotes, and confidence.
+- confidence must be exactly one of: low, medium, high. If uncertain, use low; never omit confidence.
 - Every finding must include 1 to 3 short, exact, verbatim evidence quotes copied from the source.
 - If the source does not support a finding, omit it.
 - Keep affected programs empty unless an official program, office, benefit, grant, service, or named government program is actually supported by the supplied text.
 - Return JSON only, with no Markdown and no commentary outside the JSON.
 
-Required JSON shape:
+Required JSON shape. Every non-empty array uses the same complete finding object:
 {
   "plain_language": [
     {
@@ -67,10 +72,29 @@ Required JSON shape:
       "confidence": "low|medium|high"
     }
   ],
-  "major_provisions": [],
-  "stakeholders": [],
-  "affected_programs": []
+  "major_provisions": [
+    {
+      "text": "major provision finding",
+      "evidence_quotes": ["exact quote from source"],
+      "confidence": "low|medium|high"
+    }
+  ],
+  "stakeholders": [
+    {
+      "text": "stakeholder finding",
+      "evidence_quotes": ["exact quote from source"],
+      "confidence": "low|medium|high"
+    }
+  ],
+  "affected_programs": [
+    {
+      "text": "affected program finding",
+      "evidence_quotes": ["exact quote from source"],
+      "confidence": "low|medium|high"
+    }
+  ]
 }
+Use [] for a section only when the source does not support any findings for that section.
 """
 
 

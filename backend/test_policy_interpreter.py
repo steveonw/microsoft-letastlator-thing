@@ -4,6 +4,7 @@ from datetime import date
 from federal_register import NormalizedChunk, NormalizedPolicyDocument
 from models import InformationType, StepKind, StepStatus, VerificationStatus
 from policy_interpreter import (
+    POLICY_INTERPRETER_SYSTEM_PROMPT,
     InterpreterFinding,
     PolicyInterpreterOutput,
     build_analysis_from_interpreter_output,
@@ -52,6 +53,40 @@ class PolicyInterpreterTests(unittest.TestCase):
         self.assertIn("OFFICIAL SOURCE TEXT START", prompt)
         self.assertIn("demo-1-chunk-001", prompt)
         self.assertIn("quarterly notification", prompt)
+
+        self.assertIn(
+            "Every finding in every section must include all three fields",
+            POLICY_INTERPRETER_SYSTEM_PROMPT,
+        )
+        self.assertIn('"major_provisions": [', POLICY_INTERPRETER_SYSTEM_PROMPT)
+        self.assertGreaterEqual(
+            POLICY_INTERPRETER_SYSTEM_PROMPT.count(
+                '"confidence": "low|medium|high"'
+            ),
+            4,
+        )
+
+    def test_missing_confidence_defaults_to_low_instead_of_aborting(self) -> None:
+        raw = """{
+          "plain_language": [],
+          "major_provisions": [
+            {
+              "text": "The source describes listed reporting dates.",
+              "evidence_quotes": ["Quarterly reports are due on listed dates."]
+            }
+          ],
+          "stakeholders": [],
+          "affected_programs": []
+        }"""
+
+        output = PolicyInterpreterOutput.model_validate_json(raw)
+
+        self.assertEqual(output.major_provisions[0].confidence, "low")
+
+        analysis = build_analysis_from_interpreter_output(document(), output)
+        claim = analysis.steps[1].claims[0]
+        self.assertEqual(claim.confidence, "low")
+        self.assertTrue(claim.evidence_ids)
 
     def test_structured_output_becomes_draft_evidence_linked_claims(self) -> None:
         output = PolicyInterpreterOutput(
