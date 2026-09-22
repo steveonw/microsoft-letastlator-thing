@@ -1,0 +1,50 @@
+{
+  "fixture_kind": "synthetic_chunk5_demo",
+  "records": [
+    {
+      "id": "synthetic-comment-001",
+      "title": "Synthetic public comment: reporting clarity",
+      "text": "I support a clear reporting framework because predictable deadlines can make compliance planning easier. I would still like the agency to explain how small teams should handle borderline cases.",
+      "information_type": "public_opinion",
+      "url": "https://example.invalid/policytrace/synthetic-comment-001",
+      "posted_at": "2024-09-18T14:00:00Z",
+      "organization": null
+    },
+    {
+      "id": "synthetic-comment-002",
+      "title": "Synthetic public comment: implementation burden",
+      "text": "The proposed reporting process could create substantial administrative burden for organizations that must repeatedly determine whether activities fall within scope. Please clarify the threshold tests.",
+      "information_type": "public_opinion",
+      "url": "https://example.invalid/policytrace/synthetic-comment-002",
+      "posted_at": "2024-09-20T16:30:00Z",
+      "organization": null
+    },
+    {
+      "id": "synthetic-comment-003",
+      "title": "Synthetic public comment: implementation burden duplicate",
+      "text": "The proposed reporting process could create substantial administrative burden for organizations that must repeatedly determine whether activities fall within scope. Please clarify the threshold tests.",
+      "information_type": "public_opinion",
+      "url": "https://example.invalid/policytrace/synthetic-comment-003",
+      "posted_at": "2024-09-21T11:15:00Z",
+      "organization": null
+    },
+    {
+      "id": "synthetic-stakeholder-001",
+      "title": "Synthetic stakeholder statement",
+      "text": "Our association supports consistent federal reporting expectations, but asks for more implementation guidance before covered organizations must operationalize recurring notifications.",
+      "information_type": "stakeholder_claim",
+      "url": "https://example.invalid/policytrace/synthetic-stakeholder-001",
+      "posted_at": "2024-09-23T09:00:00Z",
+      "organization": "Synthetic Technology Association"
+    },
+    {
+      "id": "synthetic-report-001",
+      "title": "Synthetic factual reporting note",
+      "text": "The analyzed docket material includes both supportive and critical submissions, with several records asking for additional clarification about implementation details.",
+      "information_type": "factual_reporting",
+      "url": "https://example.invalid/policytrace/synthetic-report-001",
+      "posted_at": "2024-09-24T18:00:00Z",
+      "organization": "Synthetic News Desk"
+    }
+  ]
+}
