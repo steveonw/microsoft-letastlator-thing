@@ -20,8 +20,6 @@ export type VerificationStatus =
 export type StepStatus =
   | "draft"
   | "verified"
-  | "human_edited"
-  | "approved"
   | "needs_refresh";
 
 export type HumanReviewStatus =
@@ -29,6 +27,21 @@ export type HumanReviewStatus =
   | "in_review"
   | "reviewed"
   | "approved";
+
+export type PiiRedactionStatus =
+  | "not_checked"
+  | "not_detected"
+  | "redacted"
+  | "not_applicable";
+
+export type StepKind =
+  | "policy_understanding"
+  | "major_provisions"
+  | "stakeholders"
+  | "public_response"
+  | "themes_viewpoints"
+  | "verification"
+  | "draft_brief";
 
 export type Confidence = "low" | "medium" | "high";
 
@@ -47,8 +60,11 @@ export interface Source {
   url?: string | null;
   agency?: string | null;
   published_at?: string | null;
+  submitted_at?: string | null;
   version?: string | null;
   raw_text?: string | null;
+  pii_redaction_status: PiiRedactionStatus;
+  duplicate_cluster_id?: string | null;
 }
 
 export interface Evidence {
@@ -56,15 +72,19 @@ export interface Evidence {
   source_id: string;
   snippet: string;
   locator?: string | null;
+  start_offset?: number | null;
+  end_offset?: number | null;
   retrieved_at: string;
 }
 
 export interface Claim {
   id: string;
   text: string;
+  original_text?: string | null;
   information_type: InformationType;
   evidence_ids: string[];
   verification_status: VerificationStatus;
+  verification_note?: string | null;
   confidence: Confidence;
 }
 
@@ -77,7 +97,7 @@ export interface HumanReview {
 
 export interface AnalysisStep {
   id: string;
-  kind: string;
+  kind: StepKind;
   title: string;
   status: StepStatus;
   depends_on: string[];
@@ -88,7 +108,7 @@ export interface AnalysisStep {
 }
 
 export interface AnalysisRun {
-  schema_version: "0.1.0";
+  schema_version: "0.2.0";
   id: string;
   mode: AnalysisMode;
   policy: Policy;

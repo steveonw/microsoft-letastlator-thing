@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "id": "run-demo-001",
   "mode": "guided",
   "policy": {
@@ -17,8 +17,11 @@
       "url": null,
       "agency": "Demo Energy Agency",
       "published_at": null,
+      "submitted_at": null,
       "version": "draft-1",
-      "raw_text": "Section 2(a). Covered providers must maintain an annual compliance record. Section 4(b). Each licensed provider must submit an annual energy-use report no later than March 31."
+      "raw_text": "Section 2(a). Covered providers must maintain an annual compliance record. Section 4(b). Each licensed provider must submit an annual energy-use report no later than March 31.",
+      "pii_redaction_status": "not_applicable",
+      "duplicate_cluster_id": null
     }
   ],
   "evidence": [
@@ -27,6 +30,8 @@
       "source_id": "source-policy-001",
       "snippet": "Covered providers must maintain an annual compliance record.",
       "locator": "Section 2(a)",
+      "start_offset": 14,
+      "end_offset": 74,
       "retrieved_at": "2026-09-21T18:00:00Z"
     },
     {
@@ -34,6 +39,8 @@
       "source_id": "source-policy-001",
       "snippet": "Each licensed provider must submit an annual energy-use report no later than March 31.",
       "locator": "Section 4(b)",
+      "start_offset": 89,
+      "end_offset": 175,
       "retrieved_at": "2026-09-21T18:00:00Z"
     }
   ],
@@ -47,11 +54,13 @@
       "claims": [
         {
           "id": "claim-001",
-          "text": "The rule creates annual recordkeeping and reporting duties for covered or licensed providers.",
+          "text": "The text creates annual recordkeeping duties for covered providers and annual reporting duties for licensed providers.",
+          "original_text": "The rule creates annual recordkeeping and reporting duties for covered or licensed providers.",
           "information_type": "ai_interpretation",
           "evidence_ids": ["evidence-001", "evidence-002"],
-          "verification_status": "supported",
-          "confidence": "high"
+          "verification_status": "needs_clarification",
+          "verification_note": "The original wording blurred two labels used by the source: covered providers and licensed providers. The revised text keeps the duties separate.",
+          "confidence": "medium"
         }
       ],
       "ai_output": "The fictional rule creates annual compliance recordkeeping and energy-use reporting duties.",
@@ -59,9 +68,9 @@
         "status": "not_reviewed",
         "notes": [],
         "flagged_claim_ids": [],
-        "edited_claim_ids": []
+        "edited_claim_ids": ["claim-001"]
       },
-      "version": 1
+      "version": 2
     },
     {
       "id": "step-2",
@@ -73,9 +82,21 @@
         {
           "id": "claim-002",
           "text": "Licensed providers must submit an annual energy-use report by March 31.",
+          "original_text": null,
           "information_type": "ai_interpretation",
           "evidence_ids": ["evidence-002"],
           "verification_status": "supported",
+          "verification_note": null,
+          "confidence": "high"
+        },
+        {
+          "id": "claim-004",
+          "text": "Licensed providers must submit energy-use reports every month.",
+          "original_text": null,
+          "information_type": "ai_interpretation",
+          "evidence_ids": ["evidence-002"],
+          "verification_status": "unsupported",
+          "verification_note": "The cited text says annual, not monthly.",
           "confidence": "high"
         }
       ],
@@ -83,7 +104,7 @@
       "human_review": {
         "status": "not_reviewed",
         "notes": [],
-        "flagged_claim_ids": [],
+        "flagged_claim_ids": ["claim-004"],
         "edited_claim_ids": []
       },
       "version": 1
@@ -98,9 +119,11 @@
         {
           "id": "claim-003",
           "text": "Licensed providers are directly affected because they must submit the annual report.",
+          "original_text": null,
           "information_type": "ai_interpretation",
           "evidence_ids": ["evidence-002"],
           "verification_status": "supported",
+          "verification_note": null,
           "confidence": "high"
         }
       ],
