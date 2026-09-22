@@ -109,6 +109,10 @@ The AI should present its current interpretation and allow correction before con
 
 ## Claim and citation verification
 
+Chunk 6 adds a separate Claim Verifier pass. Before semantic verification, PolicyTrace re-checks deterministic citation integrity (claim → evidence → source, exact snippet/offset consistency). Only claims that pass that gate are sent to the verifier model.
+
+The verifier receives the claim text plus cited evidence and source metadata, but not the original analyst reasoning. It returns one of the shared verification statuses plus a short explanation and, when useful, an optional narrower wording suggestion. The original claim is never silently rewritten, and human review remains required.
+
 Important AI-generated claims should not stand alone.
 
 A claim should carry its supporting evidence and a verification result.
@@ -274,3 +278,24 @@ Later versions can add additional government APIs, revision comparison, larger-s
 **No important AI claim without evidence, and no evidence without checking that it actually supports the claim.**
 
 PolicyTrace should help analysts move faster while keeping sources visible, uncertainty explicit, and humans in control.
+
+
+## Current backend milestone
+
+Chunks 1–6 now have backend implementations:
+
+1. Shared analysis contract
+2. Federal Register ingestion
+3. Exact evidence grounding
+4. Policy Interpreter
+5. Response & Viewpoint Analyst
+6. Claim Verifier
+
+The Claim Verifier can be run against an existing AnalysisRun:
+
+```bash
+python backend/run_claim_verifier.py --offline \
+  --input /tmp/policytrace-offline-interpreter.json
+```
+
+For live model verification, use `--provider foundry`, `openai`, or `openrouter`. Microsoft Foundry remains the intended hackathon demo provider.

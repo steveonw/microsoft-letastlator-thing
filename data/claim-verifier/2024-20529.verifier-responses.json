@@ -1,0 +1,22 @@
+{
+  "claim-understanding-001": {
+    "status": "supported",
+    "explanation": "The cited official-policy passage directly describes an ongoing reporting requirement for companies developing or intending to develop the covered models.",
+    "narrower_wording": null
+  },
+  "claim-provision-001": {
+    "status": "supported",
+    "explanation": "The cited passage directly states the quarterly notification requirement for covered U.S. persons when applicable activities occur or are planned.",
+    "narrower_wording": null
+  },
+  "claim-provision-002": {
+    "status": "supported",
+    "explanation": "The cited passage directly lists the four quarterly notification dates.",
+    "narrower_wording": null
+  },
+  "claim-stakeholder-001": {
+    "status": "supported",
+    "explanation": "The cited passage directly identifies covered U.S. persons engaged in applicable activities as subject to the notification requirement.",
+    "narrower_wording": null
+  }
+}
