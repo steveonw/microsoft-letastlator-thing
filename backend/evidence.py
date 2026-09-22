@@ -42,15 +42,17 @@ def find_quote_span(text: str, query: str) -> tuple[int, int]:
     Locate a quoted passage while tolerating whitespace-only formatting changes.
 
     Models often flatten hard line wraps into spaces. Matching token-by-token with
-    \\s+ keeps punctuation/wording exact while allowing spaces, tabs, and newlines
-    to differ. Returned offsets always point into the original source text.
+    a whitespace regex keeps punctuation/wording exact while allowing spaces,
+    tabs, and newlines to differ. Returned offsets always point into the original
+    source text.
     """
     tokens = query.split()
     if not tokens:
         raise ValueError("query must not be empty")
 
+    whitespace = r"\s+"
     pattern = re.compile(
-        r"\\s+".join(re.escape(token) for token in tokens),
+        whitespace.join(re.escape(token) for token in tokens),
         flags=re.IGNORECASE,
     )
     match = pattern.search(text)
@@ -58,7 +60,6 @@ def find_quote_span(text: str, query: str) -> tuple[int, int]:
         raise ValueError(f"query not found in source text: {query!r}")
 
     return match.start(), match.end()
-
 
 def _find_match_in_source(
     document: NormalizedPolicyDocument,
