@@ -190,6 +190,132 @@ Do not make Fabric a blocker for the first working demo.
 
 ---
 
+## AI roles and non-AI gates
+
+For the MVP, PolicyTrace should use a small number of **role-specific AI workflows**, not a collection of autonomous agents talking to one another. The same underlying model can perform different roles with different prompts and structured outputs while normal application code controls sequencing and state.
+
+### AI Role 1 — Policy Interpreter
+
+Purpose:
+- explain the policy in plain language
+- extract major provisions
+- identify potentially affected stakeholders
+- identify affected programs when the source supports that finding
+
+Input scope:
+- `OFFICIAL_POLICY`
+- `OFFICIAL_CONTEXT`
+
+The Policy Interpreter should not use public comments, stakeholder statements, or news reporting to decide what the policy itself says. Its findings are stored as `AI_INTERPRETATION` claims linked to official evidence.
+
+### AI Role 2 — Response & Viewpoint Analyst
+
+Purpose:
+- analyze the reasons and viewpoints present in public comments, stakeholder statements, and reporting
+- preserve disagreement instead of compressing everything into one sentiment score
+
+Use one structured analysis pass with multiple lenses rather than separate mandatory "pro" and "con" agents:
+
+```text
+Response & Viewpoint Analyst
+        |
+        +--> reasons for support
+        +--> concerns / objections
+        +--> questions / misunderstandings
+        +--> mixed / neutral responses
+        +--> minority / conflicting viewpoints
+        +--> emerging issues when time data supports it
+```
+
+This avoids forcing a false support-vs-opposition binary and avoids extra model calls by default. An optional later counter-view audit may ask whether a meaningful viewpoint was missed, but it is not required for every MVP run.
+
+Keep source categories separate in the output. A public comment, stakeholder claim, and factual news report should not be blended into a single source type.
+
+The analyst must include a representativeness note when the available material cannot support population-wide conclusions.
+
+### AI Role 3 — Evidence Verifier
+
+Purpose:
+- judge whether a real cited passage supports a specific claim
+- return one of the shared verification statuses
+- explain non-supported or partially supported results
+- suggest narrower wording when useful without silently replacing the original claim
+
+The AI verifier runs **after** deterministic evidence-integrity checks. It should receive only the claim, source type, exact evidence passage, and locator needed for the verification task rather than the first AI's full reasoning.
+
+### AI Role 4 — Brief Assembler
+
+Purpose:
+- assemble reviewed findings into a coherent analyst briefing
+- produce different levels of detail, such as a detailed analyst brief or shorter leadership summary, from the same reviewed evidence
+
+The Brief Assembler must not introduce a new factual or analytical claim that is not already represented in reviewed/accepted findings. New analysis must go back through the normal analysis and verification pipeline first.
+
+### Human Analyst — final authority
+
+The human analyst is not an AI role and remains the final decision-maker.
+
+The human can:
+- inspect sources
+- accept, edit, reject, or flag claims
+- request verification
+- re-run a selected step
+- add context
+- approve the final briefing
+
+Neither Guided nor Rush mode may mark the final analysis approved without the human review state.
+
+### Non-AI components
+
+Some important jobs should remain normal software rather than model calls.
+
+**Source Normalizer**
+- fetch and normalize source metadata/text
+- split documents into usable sections/chunks
+- preserve exact locations and offsets
+
+**PII / Input Safety Gate**
+- track whether public-feedback material has been checked/redacted for personal information
+- treat external text as untrusted data rather than instructions
+
+**Workflow Controller**
+- decide which step runs next
+- enforce Guided/Rush behavior
+- track dependencies and `NEEDS_REFRESH`
+- prevent unreviewed output from being treated as final
+
+**Evidence Integrity Checker**
+- confirm cited source IDs and evidence IDs exist
+- confirm exact snippets occur in the stored source text
+- validate stored character offsets
+- reject broken evidence links before an AI verifier is called
+
+Verification therefore has two layers:
+
+```text
+Claim + citation
+      |
+      v
+DETERMINISTIC EVIDENCE INTEGRITY CHECK
+Does the evidence exist?
+Does the source exist?
+Does the exact passage match the stored source text/offsets?
+      |
+   pass / fail
+      |
+      v
+AI EVIDENCE VERIFIER
+Does this real passage actually support this claim?
+      |
+      v
+supported / partially supported / needs clarification /
+unsupported / needs human review
+```
+
+This keeps mechanical checks in code and reserves model calls for questions that require language judgment.
+
+---
+
 ## Source flow
 
 ```text
@@ -316,44 +442,62 @@ Use **Azure AI Search** to index and retrieve normalized evidence when practical
 
 ### Chunk 4 — Core policy analysis steps
 
-**Goal:** Build the first useful AI pipeline over the policy itself.
+**Goal:** Build the first useful AI analysis over the policy itself using the **Policy Interpreter** role.
 
 Initial steps:
 1. Plain-language explanation
 2. Major provisions
 3. Potentially affected stakeholders
+4. Affected programs when the official source supports that finding
 
-Each result should be structured and linked to evidence.
+The Policy Interpreter should use official policy/context sources to determine what the policy says. Public comments, stakeholder claims, and reporting must not alter the description of the official policy.
+
+Each result should be structured, labeled as AI interpretation, and linked to official evidence.
 
 Use **Microsoft Foundry** for the analysis workflow if available.
 
-**Done when:** One policy can move through these steps and produce inspectable results.
+**Done when:** One policy can move through these steps and produce inspectable, evidence-linked results without mixing public reaction into the policy interpretation.
 
 ---
 
 ### Chunk 5 — Public response + viewpoints
 
-**Goal:** Add a small set of outside reactions without pretending they represent everyone.
+**Goal:** Use the **Response & Viewpoint Analyst** to explain the range of reactions in the supplied material without pretending they represent everyone.
 
 Start with:
 - **Regulations.gov** public comments
-- **GDELT** news/reporting
 - selected stakeholder statements when useful
+- a small amount of news/reporting when useful; GDELT can be added after the core path is stable
+
+Use one structured model call with multiple explicit lenses rather than mandatory separate "pro" and "con" calls.
 
 Surface:
-- recurring concerns
-- recurring support/reasons
-- questions/misunderstandings
+- reasons for support
+- concerns / objections
+- questions / misunderstandings
+- mixed or neutral responses
 - conflicting or minority viewpoints
+- emerging issues when dates/time-series data support the claim
 - representativeness warning
 
-**Done when:** The app can explain *why* people in the analyzed material are reacting, with source links.
+Keep public opinion, stakeholder claims, and factual reporting visibly separate.
+
+**Done when:** The app can explain *why* people in the analyzed material are reacting, preserve conflicting/minority views, and show which source type supports each finding without reducing the material to one sentiment score.
 
 ---
 
 ### Chunk 6 — Claim verification
 
-**Goal:** Check whether important claims are actually supported by their cited evidence.
+**Goal:** Check whether important claims are actually supported by their cited evidence using both deterministic checks and an AI verifier.
+
+First run the **Evidence Integrity Checker** in normal code:
+- cited source exists
+- cited evidence exists
+- exact snippet exists in the stored source text when raw text is available
+- stored character offsets reproduce the exact snippet
+- broken references fail before any model call
+
+Then run the **Evidence Verifier** AI over the real claim + evidence passage.
 
 Statuses:
 - Supported
@@ -362,9 +506,9 @@ Statuses:
 - Unsupported
 - Needs human review
 
-The verifier should receive the claim plus the underlying retrieved evidence and decide whether the evidence actually supports it.
+The AI verifier should not receive the first analyst's full reasoning. It should judge the claim against the supplied evidence, explain non-supported outcomes, and may suggest narrower wording without silently overwriting the original claim.
 
-**Done when:** A separate verification pass can inspect a claim + evidence and return a visible status.
+**Done when:** Broken citations are rejected deterministically and a separate AI verification pass can judge whether valid evidence actually supports the claim.
 
 ---
 
@@ -412,9 +556,15 @@ If a step changes:
 - mark dependent later sections as **Needs Refresh**
 - let the human refresh only affected sections
 
-Then assemble the final brief from reviewed sections.
+Then use the **Brief Assembler** to build the final briefing from reviewed/accepted findings.
 
-**Done when:** A user can fix one bad section without restarting the whole analysis and can produce a traceable final report.
+The Brief Assembler may reorganize and summarize reviewed material, but it must not introduce new factual or analytical claims that have not already passed through the normal evidence/verification workflow.
+
+The same reviewed findings can later support different presentation depths, such as:
+- detailed analyst brief
+- shorter leadership summary
+
+**Done when:** A user can fix one bad section without restarting the whole analysis and can produce a traceable final report whose claims all come from reviewed findings.
 
 ---
 
@@ -430,13 +580,14 @@ Then assemble the final brief from reviewed sections.
 3 Evidence + Azure AI Search
         |
         v
-4 Core analysis with Foundry
+4 Policy Interpreter with Foundry
         |
         +----------------+
         |                |
         v                v
-5 Public response   6 Verification
-(Regulations/GDELT)     |
+5 Multi-lens        6 Deterministic integrity
+  response analysis   + AI verification
+(Regulations first)       |
         |                |
         +-------+--------+
                 |
