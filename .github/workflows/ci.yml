@@ -103,6 +103,32 @@ jobs:
             --input /tmp/policytrace-offline-interpreter.json \
             --output /tmp/policytrace-offline-verified.json
 
+      - name: Verify offline Guided Mode begin and Next
+        run: |
+          python backend/run_guided_review.py begin \
+            --input /tmp/policytrace-offline-verified.json \
+            --output /tmp/policytrace-guided.json
+
+          python backend/run_guided_review.py next \
+            --input /tmp/policytrace-guided.json
+
+      - name: Validate offline Guided Mode state
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(
+              Path("/tmp/policytrace-guided.json").read_text(encoding="utf-8")
+          )
+          assert data["mode"] == "guided"
+          assert data["steps"][0]["human_review"]["status"] == "reviewed"
+          assert data["current_step_id"] == data["steps"][1]["id"]
+          assert data["steps"][1]["human_review"]["status"] == "in_review"
+          assert data["final_review_status"] == "not_reviewed"
+          print("Offline Guided Mode state verified.")
+          PY
+
       - name: Validate offline Claim Verifier output
         run: |
           python - <<'PY'
