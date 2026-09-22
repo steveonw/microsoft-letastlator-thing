@@ -4,6 +4,7 @@ from datetime import date
 from federal_register import NormalizedChunk, NormalizedPolicyDocument
 from models import InformationType, StepKind, StepStatus, VerificationStatus
 from policy_interpreter import (
+    POLICY_INTERPRETER_SYSTEM_PROMPT,
     InterpreterFinding,
     PolicyInterpreterOutput,
     build_analysis_from_interpreter_output,
@@ -52,9 +53,18 @@ class PolicyInterpreterTests(unittest.TestCase):
         self.assertIn("OFFICIAL SOURCE TEXT START", prompt)
         self.assertIn("demo-1-chunk-001", prompt)
         self.assertIn("quarterly notification", prompt)
-        self.assertIn("Every finding in every section must include all three fields", prompt)
-        self.assertIn('"major_provisions": [', prompt)
-        self.assertGreaterEqual(prompt.count('"confidence": "low|medium|high"'), 4)
+
+        self.assertIn(
+            "Every finding in every section must include all three fields",
+            POLICY_INTERPRETER_SYSTEM_PROMPT,
+        )
+        self.assertIn('"major_provisions": [', POLICY_INTERPRETER_SYSTEM_PROMPT)
+        self.assertGreaterEqual(
+            POLICY_INTERPRETER_SYSTEM_PROMPT.count(
+                '"confidence": "low|medium|high"'
+            ),
+            4,
+        )
 
     def test_missing_confidence_defaults_to_low_instead_of_aborting(self) -> None:
         raw = """{
