@@ -94,3 +94,29 @@ The live default docket is `BIS-2024-0047`, linked to the historical 2024 BIS pr
 ## Scope
 
 Chunk 5 does not claim that sampled comments represent population-wide opinion, does not infer a political recommendation, and does not decide what the policy itself says. Policy meaning stays in the Chunk 4 Policy Interpreter.
+
+
+## OpenRouter free-model test path
+
+While Microsoft Foundry access is pending, Chunk 5 can also use OpenRouter's free-model router.
+
+Set:
+
+```bash
+export OPENROUTER_API_KEY="your-key"
+export REGULATIONS_GOV_API_KEY="your-regulations-gov-key"
+```
+
+Then run:
+
+```bash
+python backend/run_response_analysis.py --provider openrouter
+```
+
+The default OpenRouter model is `openrouter/free`. To pin a specific free model, set:
+
+```bash
+export POLICYTRACE_OPENROUTER_MODEL="provider/model:free"
+```
+
+OpenRouter is only a local/live integration-testing path. Microsoft Foundry remains the hackathon target.
