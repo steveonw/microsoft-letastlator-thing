@@ -66,6 +66,33 @@ class PolicyInterpreterTests(unittest.TestCase):
             4,
         )
 
+    def test_excess_evidence_quotes_are_capped_at_three(self) -> None:
+        raw = """{
+          "plain_language": [
+            {
+              "text": "The proposal describes quarterly notification.",
+              "evidence_quotes": [
+                "quote one",
+                "quote two",
+                "quote three",
+                "quote four",
+                "quote five"
+              ],
+              "confidence": "high"
+            }
+          ],
+          "major_provisions": [],
+          "stakeholders": [],
+          "affected_programs": []
+        }"""
+
+        output = PolicyInterpreterOutput.model_validate_json(raw)
+
+        self.assertEqual(
+            output.plain_language[0].evidence_quotes,
+            ["quote one", "quote two", "quote three"],
+        )
+
     def test_missing_confidence_defaults_to_low_instead_of_aborting(self) -> None:
         raw = """{
           "plain_language": [],
