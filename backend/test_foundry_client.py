@@ -6,14 +6,18 @@ from foundry_client import _completion_url, _strip_json_fence
 class FoundryClientTests(unittest.TestCase):
     def test_completion_url_appends_openai_route(self) -> None:
         self.assertEqual(
-            _completion_url(
-                "https://example.services.ai.azure.com/api/projects/demo"
-            ),
+            _completion_url("https://example.services.ai.azure.com"),
             (
-                "https://example.services.ai.azure.com/api/projects/demo"
+                "https://example.services.ai.azure.com"
                 "/openai/v1/chat/completions"
             ),
         )
+
+    def test_project_endpoint_is_rejected_for_chat_completions(self) -> None:
+        with self.assertRaises(ValueError):
+            _completion_url(
+                "https://example.services.ai.azure.com/api/projects/demo"
+            )
 
     def test_completion_url_keeps_full_route(self) -> None:
         value = (
