@@ -227,14 +227,17 @@ def _claim_for_finding(
     claim_id: str,
     finding: ViewpointFinding,
     evidence_ids: list[str],
-    citation_failures: int = 0,
+    citation_failures: list[str] | None = None,
 ) -> Claim:
-    if citation_failures:
+    failures = citation_failures or []
+    if failures:
         note = (
             "AI-generated viewpoint analysis. "
-            f"{citation_failures} cited quote(s) could not be located in the cited "
+            f"{len(failures)} cited quote(s) could not be located in the cited "
             "source after whitespace-tolerant matching. Citation integrity is incomplete; "
-            "semantic support has not been assessed and requires human review."
+            "semantic support has not been assessed and requires human review. "
+            "Failed citation diagnostics: "
+            + " | ".join(failures)
         )
     else:
         note = (
@@ -274,13 +277,15 @@ def build_response_analysis(
         for index, finding in enumerate(findings, start=1):
             _validate_finding_source_types(finding, source_map)
             evidence_ids: list[str] = []
-            citation_failures = 0
+            citation_failures: list[str] = []
             for ref in finding.evidence:
                 source = source_map[ref.source_id]
                 try:
                     evidence = _exact_quote_evidence(source, ref.quote)
-                except ValueError:
-                    citation_failures += 1
+                except ValueError as exc:
+                    citation_failures.append(
+                        f"source_id={ref.source_id!r}; quote={ref.quote!r}; reason={exc}"
+                    )
                     continue
                 evidence_by_id[evidence.id] = evidence
                 evidence_ids.append(evidence.id)
