@@ -9,8 +9,15 @@ from urllib.request import Request, urlopen
 
 def _completion_url(endpoint: str) -> str:
     value = endpoint.rstrip("/")
+    if "/api/projects/" in value:
+        raise ValueError(
+            "POLICYTRACE_FOUNDRY_ENDPOINT must be a Microsoft Foundry Models "
+            "resource endpoint, not a project endpoint, for Chat Completions"
+        )
     if value.endswith("/openai/v1/chat/completions"):
         return value
+    if value.endswith("/openai/v1"):
+        return value + "/chat/completions"
     return value + "/openai/v1/chat/completions"
 
 
@@ -75,6 +82,7 @@ class FoundryChatClient:
 
         payload = {
             "model": self.config.model,
+            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
