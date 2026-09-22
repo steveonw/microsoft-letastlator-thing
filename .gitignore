@@ -9,6 +9,7 @@ venv/
 # Local generated demo outputs
 data/federal-register/*.normalized.json
 data/evidence/*.chunk3-demo.json
+data/response-analysis/*.chunk5-analysis.json
 
 # OS / editors
 .DS_Store
