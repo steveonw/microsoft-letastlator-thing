@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from evidence import (
     build_chunk3_demo_analysis,
     evidence_for_query,
+    find_quote_span,
     source_from_federal_register,
 )
 from federal_register import NormalizedChunk, NormalizedPolicyDocument
@@ -132,6 +133,40 @@ class EvidenceLayerTests(unittest.TestCase):
             text[evidence.start_offset:evidence.end_offset],
             evidence.snippet,
         )
+
+    def test_hard_wrap_after_hyphen_matches_without_changing_offsets(self) -> None:
+        text = "computational operations (e.g., integer or floating-\npoint operations)."
+        query = "computational operations (e.g., integer or floating-point operations)."
+
+        start, end = find_quote_span(text, query)
+
+        self.assertEqual(text[start:end], text)
+        self.assertIn("floating-\npoint", text[start:end])
+
+    def test_hard_wrap_after_slash_matches_without_changing_offsets(self) -> None:
+        text = "per second (OP/\ns) for AI training, without sparsity."
+        query = "per second (OP/s) for AI training, without sparsity."
+
+        start, end = find_quote_span(text, query)
+
+        self.assertEqual(text[start:end], text)
+        self.assertIn("OP/\ns", text[start:end])
+
+    def test_hard_wrap_tolerance_does_not_accept_changed_punctuation(self) -> None:
+        text = "The threshold is 10[supcaret]26 computational operations."
+        with self.assertRaises(ValueError):
+            find_quote_span(
+                text,
+                "The threshold is 10[supcaret]26 computational operations;",
+            )
+
+    def test_hard_wrap_tolerance_does_not_treat_ellipsis_as_wildcard(self) -> None:
+        text = "BIS welcomes comments on the notification schedule and storage."
+        with self.assertRaises(ValueError):
+            find_quote_span(
+                text,
+                "BIS welcomes comments ... storage.",
+            )
 
     def test_query_can_span_chunk_boundary(self) -> None:
         text = "Alpha policy phrase crosses boundary here."
