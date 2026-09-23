@@ -2,7 +2,7 @@
 
 Chunk 5 analyzes the reasons and viewpoints present in supplied response material without treating those materials as representative of the general public.
 
-The MVP starts with Regulations.gov public comments. The contract also supports selected stakeholder statements and factual reporting while keeping those source categories visibly separate.
+The MVP starts with Regulations.gov public comments. The live ingester now requests comment attachments as well, so attachment-only submissions such as "See attached file(s)" can contribute their actual text when Regulations.gov exposes a supported TXT, HTML, PDF, or DOCX file. The contract also supports selected stakeholder statements and factual reporting while keeping those source categories visibly separate.
 
 ## What the analyst surfaces
 
@@ -44,7 +44,9 @@ The system explicitly states that the analyzed material is not a representative 
 
 ## PII / input safety
 
-External response text is treated as untrusted data. Before it is passed to the analyst, obvious email addresses and phone numbers appearing inside comment text are redacted. Regulations.gov identity fields such as first and last name are not imported into the PolicyTrace response record.
+External response text is treated as untrusted data. Before it is passed to the analyst, obvious email addresses and phone numbers appearing inside comment text or extracted attachment text are redacted. Regulations.gov identity fields such as first and last name are not imported into the PolicyTrace response record.
+
+Attachment downloads are limited to the official `downloads.regulations.gov` HTTPS host, capped at 15 MB per downloaded representation, and extracted text is capped at 50,000 characters per attachment. When Regulations.gov offers multiple representations, PolicyTrace prefers TXT/HTML before PDF/DOCX. Unsupported, inaccessible, scanned/image-only, or otherwise unextractable attachments are skipped rather than treated as verified text.
 
 ## Offline demo
 
