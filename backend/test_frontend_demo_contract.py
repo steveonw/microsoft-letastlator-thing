@@ -18,8 +18,12 @@ class FrontendDemoContractTests(unittest.TestCase):
         app = (DEMO / "app.js").read_text(encoding="utf-8")
         page = (DEMO / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn('const ANALYSIS_PATH = "/api/analysis";', app)
-        self.assertIn('const STORAGE_KEY = "policytrace-guided-demo";', app)
+        self.assertIn('api("/api/analysis")', app)
+        self.assertIn('api("/api/provider")', app)
+        self.assertNotIn("localStorage", app)
+
+        for source in ("id", "url", "text", "file"):
+            self.assertIn(f'id="tab-{source}"', page)
 
         for element_id in (
             "reset-btn",

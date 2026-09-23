@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PolicyTrace Demo</title>
+  <title>PolicyTrace · Analysis workspace</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -13,15 +13,15 @@
       <div class="subtitle">Evidence-grounded policy analysis</div>
     </div>
     <div class="top-actions">
-      <div class="demo-pill">FEDERAL REGISTER DEMO</div>
-      <button id="reset-btn" type="button" class="reset-button">Reset review</button>
+      <span id="provider-indicator" class="provider-indicator">Provider not configured</span>
+      <button id="provider-open" type="button" class="top-button">Provider settings</button>
     </div>
   </header>
 
   <main class="page">
     <section class="hero">
       <div>
-        <p class="eyebrow">Guided Mode · evidence pipeline demo</p>
+        <p class="eyebrow">Analysis workspace</p>
         <h1 id="policy-title">Loading policy…</h1>
         <p id="policy-meta" class="muted"></p>
       </div>
@@ -31,39 +31,92 @@
       </div>
     </section>
 
-    <section class="workspace">
-      <aside class="panel steps-panel">
-        <div class="panel-heading">
-          <span>Analysis Steps</span>
-          <span id="step-count" class="count"></span>
+    <section class="source-card" aria-labelledby="source-heading">
+      <div class="source-heading">
+        <div>
+          <p class="eyebrow">New analysis</p>
+          <h2 id="source-heading">Choose a policy source</h2>
+          <p class="muted">Load one policy, then inspect its claims and evidence below.</p>
         </div>
+        <span class="source-note">Analyzing a new source replaces this workspace</span>
+      </div>
+      <div class="input-switcher" role="tablist" aria-label="Policy input type">
+        <button type="button" role="tab" class="input-tab active" id="tab-id" data-input="id" aria-selected="true" aria-controls="input-id">Document ID</button>
+        <button type="button" role="tab" class="input-tab" id="tab-url" data-input="url" aria-selected="false" aria-controls="input-url">URL</button>
+        <button type="button" role="tab" class="input-tab" id="tab-text" data-input="text" aria-selected="false" aria-controls="input-text">Paste text</button>
+        <button type="button" role="tab" class="input-tab" id="tab-file" data-input="file" aria-selected="false" aria-controls="input-file">Upload file</button>
+      </div>
+      <form id="source-form" class="source-form">
+        <div id="input-id" class="input-panel" role="tabpanel" aria-labelledby="tab-id">
+          <label for="document-number">Federal Register document number</label>
+          <input id="document-number" name="document-number" type="text" placeholder="2024-20529" autocomplete="off" />
+          <p class="field-hint">Official Federal Register source</p>
+        </div>
+        <div id="input-url" class="input-panel" role="tabpanel" aria-labelledby="tab-url" hidden>
+          <label for="source-url">Public policy URL</label>
+          <input id="source-url" name="source-url" type="url" placeholder="https://example.gov/policy" />
+          <p class="field-hint">Federal Register links use official ingestion. Other public URLs remain unverified.</p>
+        </div>
+        <div id="input-text" class="input-panel" role="tabpanel" aria-labelledby="tab-text" hidden>
+          <label for="text-title">Policy title <span class="optional">optional</span></label>
+          <input id="text-title" name="text-title" type="text" placeholder="Name this policy" />
+          <label for="policy-text">Policy text</label>
+          <textarea id="policy-text" name="policy-text" rows="5" placeholder="Paste the policy text here"></textarea>
+        </div>
+        <div id="input-file" class="input-panel" role="tabpanel" aria-labelledby="tab-file" hidden>
+          <label for="policy-file">Policy file</label>
+          <input id="policy-file" name="policy-file" type="file" accept=".pdf,.txt,.md,.html,.htm,.json,application/pdf,text/plain,text/html,application/json" />
+          <p class="field-hint">PDF, TXT, Markdown, HTML, or PolicyTrace JSON · 5 MB max</p>
+        </div>
+        <button id="source-submit" class="primary-button" type="submit">Load &amp; analyze <span aria-hidden="true">→</span></button>
+      </form>
+    </section>
+
+    <div class="workspace-toolbar">
+      <details class="related-input">
+        <summary>+ Add public comments <span>Regulations.gov</span></summary>
+        <form id="comments-form" class="comments-form">
+          <div><label for="docket-id">Docket ID</label><input id="docket-id" type="text" placeholder="BIS-2024-0047" /></div>
+          <div><label for="comment-count">Max comments</label><input id="comment-count" type="number" min="1" max="100" value="12" /></div>
+          <button type="submit">Load comments</button>
+        </form>
+      </details>
+      <div class="toolbar-actions">
+        <button id="reset-btn" type="button">Reset review</button>
+        <button id="begin-btn" type="button">Begin Guided</button>
+        <button id="rush-btn" type="button" class="primary-button">Run Rush</button>
+      </div>
+    </div>
+
+    <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+
+    <section class="workspace" aria-label="Analysis workspace">
+      <aside class="panel steps-panel">
+        <div class="panel-heading"><span>Analysis steps</span><span id="step-count" class="count">0</span></div>
         <div id="steps" class="steps"></div>
       </aside>
-
       <section class="panel analysis-panel">
-        <div class="panel-heading">
-          <span>Current Analysis</span>
-          <span id="step-status" class="status-pill"></span>
-        </div>
-
+        <div class="panel-heading"><span>Current analysis</span><span id="step-status" class="status-pill">—</span></div>
         <div class="analysis-body">
           <p class="eyebrow" id="step-kind"></p>
           <h2 id="step-title">Select a step</h2>
           <p id="ai-output" class="ai-output"></p>
-
           <h3>Claims</h3>
           <div id="claims" class="claims"></div>
+          <details class="refine-tools">
+            <summary>Refine this step</summary>
+            <p>Replace the first claim, refresh dependent work, or mark the step reviewed after verification.</p>
+            <div class="refine-actions">
+              <button id="reanalyze-btn" type="button">Replace first claim</button>
+              <button id="refresh-btn" type="button">Refresh step</button>
+              <button id="review-step-btn" type="button">Mark reviewed</button>
+            </div>
+          </details>
         </div>
       </section>
-
       <aside class="panel evidence-panel">
-        <div class="panel-heading">
-          <span>Evidence</span>
-          <span id="evidence-count" class="count"></span>
-        </div>
-        <div id="evidence" class="evidence-list">
-          <p class="empty">Select a claim to inspect its evidence.</p>
-        </div>
+        <div class="panel-heading"><span>Evidence</span><span id="evidence-count" class="count">0</span></div>
+        <div id="evidence" class="evidence-list"><p class="empty">Select a claim to inspect its evidence.</p></div>
       </aside>
     </section>
 
@@ -74,14 +127,42 @@
       </div>
       <div class="review-actions">
         <button id="clarify-btn" type="button">Clarify</button>
-        <button id="edit-btn" type="button">Edit</button>
+        <button id="edit-btn" type="button">Edit claim</button>
         <button id="verify-btn" type="button">Verify</button>
-        <button id="flag-btn" type="button">Flag for Review</button>
-        <button id="next-btn" type="button" class="primary">Next</button>
+        <button id="flag-btn" type="button">Flag</button>
+        <button id="next-btn" type="button" class="primary">Next step</button>
+        <button id="rush-final-btn" type="button">Final review</button>
+        <button id="approve-btn" type="button" class="primary">Approve Rush</button>
+        <button id="brief-btn" type="button">Build brief</button>
       </div>
-      <p id="review-notes" class="hint">Only Next advances the workflow.</p>
+      <p id="review-notes" class="hint">Begin Guided to review the current analysis.</p>
     </section>
   </main>
+
+  <dialog id="provider-dialog" class="app-dialog">
+    <form id="provider-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Connection</p><h2>Model provider</h2></div><button type="button" id="provider-close" class="icon-button" aria-label="Close">×</button></div>
+      <p class="muted">Credentials stay in this server process and are cleared on restart.</p>
+      <label for="provider-kind">Provider</label>
+      <select id="provider-kind"><option value="foundry">Microsoft Foundry</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option></select>
+      <label for="provider-model">Model or deployment</label><input id="provider-model" type="text" autocomplete="off" />
+      <div id="provider-endpoint-row"><label for="provider-endpoint">Foundry endpoint</label><input id="provider-endpoint" type="url" placeholder="https://…services.ai.azure.com" autocomplete="off" /></div>
+      <div id="provider-base-row" hidden><label for="provider-base">Base URL <span class="optional">optional</span></label><input id="provider-base" type="url" autocomplete="off" /></div>
+      <label for="provider-key">API key</label><input id="provider-key" type="password" autocomplete="off" />
+      <div id="provider-token-row"><label for="provider-token">Bearer token <span class="optional">use instead of API key</span></label><input id="provider-token" type="password" autocomplete="off" /></div>
+      <label for="regulations-key">Regulations.gov API key <span class="optional">optional</span></label><input id="regulations-key" type="password" autocomplete="off" />
+      <div class="dialog-actions"><button id="provider-clear" type="button">Clear credentials</button><button class="primary-button" type="submit">Save provider</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="review-dialog" class="app-dialog">
+    <form id="review-form">
+      <div class="dialog-heading"><div><p class="eyebrow">Human review</p><h2 id="review-dialog-title">Review note</h2></div><button type="button" id="review-close" class="icon-button" aria-label="Close">×</button></div>
+      <label id="review-field-label" for="review-input">Note</label>
+      <textarea id="review-input" rows="5"></textarea>
+      <div class="dialog-actions"><button id="review-cancel" type="button">Cancel</button><button class="primary-button" type="submit">Save</button></div>
+    </form>
+  </dialog>
 
   <script src="./app.js"></script>
 </body>

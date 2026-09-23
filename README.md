@@ -9,9 +9,11 @@ python -m pip install -r backend/requirements.txt
 python -m uvicorn api:app --app-dir backend --reload
 ```
 
-Open <http://127.0.0.1:8000/demo/>. The page loads its analysis from
-`GET /api/analysis`, which uses the backend's Federal Register normalization
-and evidence builder with a checked-in fixture. See
+Open <http://127.0.0.1:8000/demo/>. The page starts with a checked-in
+Federal Register evidence fixture. Configure a model provider in the page,
+then use the source switcher to analyze a Federal Register ID, URL, pasted
+text, or file. FastAPI holds the current analysis and review state in memory.
+See
 [the demo README](frontend/demo/README.md) for details.
 
 **Planning-stage concept**
