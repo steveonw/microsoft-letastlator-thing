@@ -18,6 +18,7 @@ from unittest.mock import patch
 import run_full_stack_guide as full_stack
 from models import AnalysisMode, HumanReviewStatus, StepStatus
 from run_full_stack_guide import GuideState
+from response_sources import CommentFetchFailure
 
 
 class AppStartFlowTests(unittest.TestCase):
@@ -231,7 +232,7 @@ class CorpusLimitVisibilityTests(unittest.TestCase):
             attempted_count=2,
             retrieved_count=1,
             failures=[
-                full_stack.CommentFetchFailure(
+                CommentFetchFailure(
                     comment_id="COMMENT-2",
                     error_type="TimeoutError",
                 )
