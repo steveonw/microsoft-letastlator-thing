@@ -692,7 +692,7 @@ class LiveSourceModeChoiceContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "Live comments analyzed. Now choose Guided or Rush.",
+            "Live comments analyzed. Corpus limits are tracked for review.",
             source,
         )
         self.assertIn(
