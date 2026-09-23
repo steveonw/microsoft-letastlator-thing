@@ -4,7 +4,6 @@ from collections.abc import Callable
 
 from claim_verifier import (
     CLAIM_VERIFIER_SYSTEM_PROMPT,
-    ClaimVerificationOutput,
     build_claim_verification_prompt,
     citation_integrity_problem,
     parse_claim_verification,
@@ -179,7 +178,7 @@ def verify_current_claim(
         )
         try:
             result = parse_claim_verification(raw)
-        except Exception as exc:
+        except ValueError as exc:
             claim.verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
             detail = str(exc).splitlines()[0].strip()
             claim.verification_note = (
