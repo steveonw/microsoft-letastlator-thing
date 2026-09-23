@@ -77,6 +77,33 @@ class ResponseFixture(StrictModel):
     records: list[ResponseRecord]
 
 
+class CommentFetchFailure(StrictModel):
+    comment_id: str
+    error_type: str
+
+
+class CommentFetchReport(StrictModel):
+    docket_id: str
+    requested_count: int
+    source_document_count: int = 0
+    observed_candidate_count: int = 0
+    attempted_count: int = 0
+    retrieved_count: int = 0
+    unusable_count: int = 0
+    failures: list[CommentFetchFailure] = Field(default_factory=list)
+
+
+class CommentFetchResult(StrictModel):
+    records: list[ResponseRecord] = Field(default_factory=list)
+    report: CommentFetchReport
+
+
+class CommentFetchError(RuntimeError):
+    def __init__(self, message: str, report: CommentFetchReport):
+        super().__init__(message)
+        self.report = report
+
+
 def sanitize_public_text(text: str) -> tuple[str, PiiRedactionStatus]:
     redacted = _EMAIL_RE.sub("[REDACTED EMAIL]", text)
     redacted = _PHONE_RE.sub("[REDACTED PHONE]", redacted)
@@ -474,13 +501,13 @@ def _fetch_comment_record(
     )
 
 
-def fetch_comments_for_docket(
+def fetch_comments_for_docket_with_report(
     docket_id: str,
     *,
     api_key: str | None = None,
     max_comments: int = 12,
     timeout: int = 30,
-) -> list[ResponseRecord]:
+) -> CommentFetchResult:
     if max_comments < 1 or max_comments > 100:
         raise ValueError("max_comments must be between 1 and 100")
 
@@ -489,6 +516,11 @@ def fetch_comments_for_docket(
         raise ValueError(
             "REGULATIONS_GOV_API_KEY is required for live Regulations.gov ingestion"
         )
+
+    report = CommentFetchReport(
+        docket_id=docket_id,
+        requested_count=max_comments,
+    )
 
     documents = _get_json(
         "/documents",
@@ -505,6 +537,7 @@ def fetch_comments_for_docket(
         raise ValueError("Regulations.gov document search returned no data list")
 
     object_ids: list[str] = []
+    seen_object_ids: set[str] = set()
     for row in document_rows:
         if not isinstance(row, dict):
             continue
@@ -512,8 +545,15 @@ def fetch_comments_for_docket(
         if not isinstance(attrs, dict):
             continue
         object_id = attrs.get("objectId")
-        if object_id:
-            object_ids.append(str(object_id))
+        if not object_id:
+            continue
+        normalized = str(object_id)
+        if normalized in seen_object_ids:
+            continue
+        seen_object_ids.add(normalized)
+        object_ids.append(normalized)
+
+    report.source_document_count = len(object_ids)
 
     if not object_ids:
         raise ValueError(
@@ -521,11 +561,11 @@ def fetch_comments_for_docket(
         )
 
     records: list[ResponseRecord] = []
-    seen_comment_ids: set[str] = set()
+    attempted_comment_ids: set[str] = set()
+    observed_candidate_ids: set[str] = set()
 
     for object_id in object_ids:
-        remaining = max_comments - len(records)
-        if remaining <= 0:
+        if len(records) >= max_comments:
             break
 
         comments = _get_json(
@@ -533,7 +573,9 @@ def fetch_comments_for_docket(
             api_key=key,
             params={
                 "filter[commentOnId]": object_id,
-                "page[size]": min(250, remaining),
+                # Fetch extra IDs so a failed/unusable detail request can be
+                # replaced without reducing the requested usable corpus.
+                "page[size]": 250,
                 "sort": "postedDate,documentId",
             },
             timeout=timeout,
@@ -546,8 +588,6 @@ def fetch_comments_for_docket(
         candidate_ids: list[str] = []
         batch_seen: set[str] = set()
         for row in rows:
-            if len(candidate_ids) >= remaining:
-                break
             if not isinstance(row, dict):
                 continue
 
@@ -555,35 +595,85 @@ def fetch_comments_for_docket(
             if not comment_id:
                 continue
 
-            comment_id = str(comment_id)
-            if comment_id in seen_comment_ids or comment_id in batch_seen:
+            normalized = str(comment_id)
+            if normalized in attempted_comment_ids or normalized in batch_seen:
                 continue
 
-            candidate_ids.append(comment_id)
-            batch_seen.add(comment_id)
+            candidate_ids.append(normalized)
+            batch_seen.add(normalized)
+            observed_candidate_ids.add(normalized)
 
-        if not candidate_ids:
-            continue
+        cursor = 0
+        while cursor < len(candidate_ids) and len(records) < max_comments:
+            remaining = max_comments - len(records)
+            batch = candidate_ids[cursor : cursor + remaining]
+            cursor += len(batch)
+            if not batch:
+                break
 
-        workers = min(COMMENT_FETCH_WORKERS, len(candidate_ids))
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            fetched = executor.map(
-                lambda comment_id: _fetch_comment_record(
-                    comment_id,
-                    api_key=key,
-                    timeout=timeout,
-                ),
-                candidate_ids,
-            )
+            workers = min(COMMENT_FETCH_WORKERS, len(batch))
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [
+                    executor.submit(
+                        _fetch_comment_record,
+                        comment_id,
+                        api_key=key,
+                        timeout=timeout,
+                    )
+                    for comment_id in batch
+                ]
 
-            # executor.map preserves candidate order even when network requests
-            # finish out of order, so the analysis remains deterministic.
-            for comment_id, record in zip(candidate_ids, fetched):
-                if len(records) >= max_comments:
-                    break
-                if record is None:
-                    continue
-                records.append(record)
-                seen_comment_ids.add(comment_id)
+                # Futures are consumed in submission order, so successful
+                # records remain deterministic even when requests finish in
+                # a different order.
+                for comment_id, future in zip(batch, futures):
+                    attempted_comment_ids.add(comment_id)
+                    report.attempted_count += 1
+                    try:
+                        record = future.result()
+                    except Exception as exc:
+                        report.failures.append(
+                            CommentFetchFailure(
+                                comment_id=comment_id,
+                                error_type=type(exc).__name__,
+                            )
+                        )
+                        continue
 
-    return records
+                    if record is None:
+                        report.unusable_count += 1
+                        continue
+
+                    records.append(record)
+                    if len(records) >= max_comments:
+                        break
+
+    report.observed_candidate_count = len(observed_candidate_ids)
+    report.retrieved_count = len(records)
+
+    if not records and report.attempted_count:
+        raise CommentFetchError(
+            "No usable Regulations.gov comments could be retrieved; "
+            f"attempted {report.attempted_count}, "
+            f"failed {len(report.failures)}, "
+            f"unusable {report.unusable_count}.",
+            report,
+        )
+
+    return CommentFetchResult(records=records, report=report)
+
+
+def fetch_comments_for_docket(
+    docket_id: str,
+    *,
+    api_key: str | None = None,
+    max_comments: int = 12,
+    timeout: int = 30,
+) -> list[ResponseRecord]:
+    return fetch_comments_for_docket_with_report(
+        docket_id,
+        api_key=api_key,
+        max_comments=max_comments,
+        timeout=timeout,
+    ).records
+
