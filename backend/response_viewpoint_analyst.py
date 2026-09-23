@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from evidence import find_quote_span, source_from_federal_register
 from federal_register import NormalizedPolicyDocument
+from response_sources import is_attachment_placeholder
+
 from models import (
     AnalysisMode,
     AnalysisRun,
@@ -108,6 +110,8 @@ def build_response_viewpoint_prompt(sources: list[Source]) -> str:
             InformationType.FACTUAL_REPORTING,
         }:
             continue
+        if is_attachment_placeholder(source.raw_text):
+            continue
 
         submitted = source.submitted_at.isoformat() if source.submitted_at else "unknown"
         blocks.append(
@@ -182,23 +186,39 @@ def _representativeness_note(sources: list[Source]) -> str:
             InformationType.FACTUAL_REPORTING,
         }
     ]
+    usable_sources = [
+        source
+        for source in response_sources
+        if source.raw_text and not is_attachment_placeholder(source.raw_text)
+    ]
+    unavailable_count = len(response_sources) - len(usable_sources)
     cluster_ids = {
         source.duplicate_cluster_id or source.id
-        for source in response_sources
+        for source in usable_sources
     }
     type_counts: dict[str, int] = {}
-    for source in response_sources:
+    for source in usable_sources:
         key = source.information_type.value
         type_counts[key] = type_counts.get(key, 0) + 1
 
     breakdown = ", ".join(
         f"{key}={value}" for key, value in sorted(type_counts.items())
     )
-    return (
-        f"Representativeness: analyzed {len(response_sources)} supplied source records "
-        f"across {len(cluster_ids)} unique exact-text clusters"
+    note = (
+        f"Representativeness: received {len(response_sources)} supplied source records; "
+        f"analyzed {len(usable_sources)} records with retrieved content across "
+        f"{len(cluster_ids)} unique exact-text clusters"
         + (f" ({breakdown})" if breakdown else "")
-        + ". These materials are not a representative sample of the general public "
+        + "."
+    )
+    if unavailable_count:
+        note += (
+            f" Excluded {unavailable_count} source record(s) from analysis and duplicate "
+            "clustering because substantive content was not retrieved."
+        )
+    return (
+        note
+        + " These materials are not a representative sample of the general public "
         "and must not be generalized to population-wide opinion."
     )
 
