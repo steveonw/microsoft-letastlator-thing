@@ -3,6 +3,7 @@ const state = {
   selectedStepId: null,
   selectedClaimId: null,
   provider: null,
+  busy: false,
 };
 
 function byId(id) { return document.getElementById(id); }
@@ -168,8 +169,24 @@ function render() {
   const brief = analysis.steps.find(item => item.kind === "draft_brief");
   byId("brief-output").textContent = brief?.ai_output ?? "No final brief yet.";
 
-  byId("refresh").disabled = step?.status !== "needs_refresh";
-  byId("review-reanalysis").disabled = !step || step.status === "needs_refresh";
+  const guidedActive = analysis.mode === "guided" && Boolean(analysis.current_step_id);
+  byId("clarify").disabled = state.busy || !guidedActive;
+  byId("edit").disabled = state.busy || !guidedActive || !claim;
+  byId("verify").disabled = state.busy || !guidedActive || !claim;
+  byId("flag").disabled = state.busy || !guidedActive || !claim;
+  byId("next").disabled = state.busy || !guidedActive;
+
+  byId("rush-final").disabled = state.busy || analysis.mode !== "rush";
+  byId("rush-approve").disabled =
+    state.busy ||
+    analysis.mode !== "rush" ||
+    analysis.final_review_status !== "in_review" ||
+    analysis.current_step_id !== null;
+
+  byId("refresh").disabled =
+    state.busy || step?.status !== "needs_refresh";
+  byId("review-reanalysis").disabled =
+    state.busy || !step || step.status === "needs_refresh";
 }
 
 async function load() {
@@ -188,17 +205,31 @@ async function load() {
   }
 }
 
+function setBusy(value) {
+  state.busy = value;
+  document.querySelectorAll("button").forEach(button => {
+    button.disabled = value;
+  });
+  if (!value) render();
+}
+
 async function action(path, body, success) {
+  if (state.busy) return;
+  setBusy(true);
   try {
     state.analysis = await api(path, body);
     render();
     message(success);
   } catch (error) {
     message(String(error), true);
+  } finally {
+    setBusy(false);
   }
 }
 
 byId("save-provider").onclick = async () => {
+  if (state.busy) return;
+  setBusy(true);
   try {
     state.provider = await api("/api/provider", {
       kind: byId("provider-kind").value,
@@ -216,16 +247,22 @@ byId("save-provider").onclick = async () => {
     message("Provider settings loaded into local process memory.");
   } catch (error) {
     message(String(error), true);
+  } finally {
+    setBusy(false);
   }
 };
 
 byId("clear-provider").onclick = async () => {
+  if (state.busy) return;
+  setBusy(true);
   try {
     state.provider = await api("/api/provider/clear", {});
     renderProvider();
     message("Local provider credentials cleared.");
   } catch (error) {
     message(String(error), true);
+  } finally {
+    setBusy(false);
   }
 };
 
