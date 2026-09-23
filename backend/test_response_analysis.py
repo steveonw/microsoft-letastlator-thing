@@ -1,5 +1,6 @@
 import unittest
 from datetime import date, datetime, timezone
+from unittest.mock import patch
 
 from federal_register import NormalizedChunk, NormalizedPolicyDocument
 from models import InformationType, PiiRedactionStatus, StepKind, VerificationStatus
@@ -8,6 +9,7 @@ from response_sources import (
     _attachment_candidates,
     _combine_comment_and_attachments,
     _comment_record_from_detail,
+    _download_attachment_bytes,
     _extract_attachment_payload,
     _validate_attachment_url,
     duplicate_cluster_id,
@@ -164,6 +166,39 @@ class ResponseSourceTests(unittest.TestCase):
 
         self.assertIn("Transparency & accountability", text)
         self.assertIn("Second point.", text)
+
+    def test_attachment_download_uses_browser_style_headers(self) -> None:
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self, size):
+                self.size = size
+                return b"attachment bytes"
+
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["headers"] = dict(request.header_items())
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+        with patch("response_sources.urlopen", side_effect=fake_urlopen):
+            payload = _download_attachment_bytes(
+                "https://downloads.regulations.gov/DEMO/attachment_1.pdf",
+                timeout=17,
+            )
+
+        self.assertEqual(payload, b"attachment bytes")
+        self.assertEqual(captured["timeout"], 17)
+        self.assertIn("Mozilla/5.0", captured["headers"]["User-agent"])
+        self.assertEqual(
+            captured["headers"]["Referer"],
+            "https://www.regulations.gov/",
+        )
 
     def test_attachment_download_host_is_restricted(self) -> None:
         _validate_attachment_url(
