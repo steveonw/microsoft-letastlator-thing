@@ -172,10 +172,24 @@ def verify_current_claim(
             f"citation-integrity gate failed: {problem}."
         )
     else:
-        raw = model_call(
-            CLAIM_VERIFIER_SYSTEM_PROMPT,
-            build_claim_verification_prompt(reviewed, claim),
-        )
+        try:
+            raw = model_call(
+                CLAIM_VERIFIER_SYSTEM_PROMPT,
+                build_claim_verification_prompt(reviewed, claim),
+            )
+        except RuntimeError as exc:
+            claim.verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
+            detail = str(exc).splitlines()[0].strip()
+            if len(detail) > 240:
+                detail = detail[:237] + "..."
+            claim.verification_note = (
+                "Semantic verification could not be completed because the "
+                f"model provider failed: {detail}. The claim remains for "
+                "human review; no verification status was inferred."
+            )
+            step.human_review.status = HumanReviewStatus.IN_REVIEW
+            return _validated_copy(reviewed)
+
         try:
             result = parse_claim_verification(raw)
         except ValueError as exc:

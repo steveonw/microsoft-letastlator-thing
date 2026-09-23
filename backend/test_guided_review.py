@@ -246,6 +246,26 @@ class GuidedReviewTests(unittest.TestCase):
         self.assertIn("unparseable or schema-invalid", claim.verification_note)
         self.assertEqual(verified.current_step_id, "step-one")
 
+    def test_verify_provider_failure_stays_in_human_review(self) -> None:
+        analysis = begin_guided_review(demo_analysis())
+
+        def model_call(system_prompt: str, user_prompt: str) -> str:
+            del system_prompt, user_prompt
+            raise RuntimeError("OpenRouter request timed out after retrying")
+
+        verified = verify_current_claim(analysis, "claim-1", model_call)
+        claim = verified.steps[0].claims[0]
+
+        self.assertEqual(
+            claim.verification_status,
+            VerificationStatus.NEEDS_HUMAN_REVIEW,
+        )
+        self.assertIn("model provider failed", claim.verification_note)
+        self.assertEqual(
+            verified.steps[0].human_review.status,
+            HumanReviewStatus.IN_REVIEW,
+        )
+
     def test_only_next_advances_and_marks_current_reviewed(self) -> None:
         analysis = begin_guided_review(demo_analysis())
         clarified = clarify_current_step(analysis, "Keep proposed-rule wording.")

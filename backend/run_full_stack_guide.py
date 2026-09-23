@@ -1,0 +1,779 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any, Callable
+
+from federal_register import NormalizedPolicyDocument, fetch_and_normalize
+from foundry_client import FoundryChatClient, FoundryConfig
+from guided_review import (
+    begin_guided_review,
+    clarify_current_step,
+    edit_current_claim,
+    flag_current_claim,
+    next_guided_step,
+    verify_current_claim,
+)
+from models import (
+    AnalysisMode,
+    AnalysisRun,
+    AnalysisStep,
+    Claim,
+    Evidence,
+    HumanReview,
+    HumanReviewStatus,
+    InformationType,
+    PiiRedactionStatus,
+    Policy,
+    Source,
+    StepKind,
+    StepStatus,
+    VerificationStatus,
+)
+from openai_client import OpenAIChatClient, OpenAIConfig
+from openrouter_client import (
+    DEFAULT_OPENROUTER_BASE_URL,
+    DEFAULT_OPENROUTER_MODEL,
+    OpenRouterChatClient,
+    OpenRouterConfig,
+)
+from policy_interpreter import run_policy_interpreter
+from response_sources import fetch_comments_for_docket, source_from_response_record
+from response_viewpoint_analyst import run_response_viewpoint_analyst
+from rush_mode import (
+    approve_rush_final_review,
+    combine_analysis_runs,
+    open_rush_step_for_review,
+    return_to_rush_final_review,
+    run_rush_analysis,
+)
+from selective_reanalysis import (
+    ReanalysisResult,
+    build_final_brief,
+    reanalyze_step,
+    refresh_step,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+APP_DIR = ROOT / "guide" / "full-stack"
+HOST = "127.0.0.1"
+PORT = 8777
+
+POLICY_TEXT = (
+    "Section 1 requires covered providers to maintain an annual compliance record. "
+    "Section 2 requires licensed providers to submit an annual energy-use report by March 31."
+)
+RESPONSE_TEXT = (
+    "One supplied commenter supports annual reporting because it creates a predictable schedule."
+)
+
+
+def _evidence(source: Source, evidence_id: str, snippet: str) -> Evidence:
+    start = source.raw_text.index(snippet)
+    return Evidence(
+        id=evidence_id,
+        source_id=source.id,
+        snippet=snippet,
+        start_offset=start,
+        end_offset=start + len(snippet),
+        retrieved_at=datetime(2026, 9, 23, tzinfo=timezone.utc),
+    )
+
+
+def _claim(
+    claim_id: str,
+    text: str,
+    evidence_id: str,
+    *,
+    status: VerificationStatus = VerificationStatus.SUPPORTED,
+) -> Claim:
+    return Claim(
+        id=claim_id,
+        text=text,
+        information_type=InformationType.AI_INTERPRETATION,
+        evidence_ids=[evidence_id],
+        verification_status=status,
+        verification_note=(
+            None
+            if status == VerificationStatus.SUPPORTED
+            else "Awaiting semantic verification in the full-stack guide."
+        ),
+        confidence="high",
+    )
+
+
+def make_guided_demo() -> AnalysisRun:
+    source = Source(
+        id="source-policy",
+        title="[GUIDE DATA] Energy Reporting Rule",
+        information_type=InformationType.OFFICIAL_POLICY,
+        raw_text=POLICY_TEXT,
+        pii_redaction_status=PiiRedactionStatus.NOT_APPLICABLE,
+    )
+    ev_record = _evidence(
+        source,
+        "evidence-record",
+        "Section 1 requires covered providers to maintain an annual compliance record.",
+    )
+    ev_report = _evidence(
+        source,
+        "evidence-report",
+        "Section 2 requires licensed providers to submit an annual energy-use report by March 31.",
+    )
+
+    steps = [
+        AnalysisStep(
+            id="step-policy-understanding",
+            kind=StepKind.POLICY_UNDERSTANDING,
+            title="Understand the policy",
+            status=StepStatus.DRAFT,
+            claims=[
+                _claim(
+                    "claim-understanding",
+                    "The policy creates annual compliance recordkeeping and reporting duties.",
+                    ev_record.id,
+                    status=VerificationStatus.NEEDS_HUMAN_REVIEW,
+                )
+            ],
+            ai_output="The policy creates annual compliance obligations for covered or licensed providers.",
+            human_review=HumanReview(status=HumanReviewStatus.NOT_REVIEWED),
+            version=1,
+        ),
+        AnalysisStep(
+            id="step-major-provisions",
+            kind=StepKind.MAJOR_PROVISIONS,
+            title="Major provisions",
+            status=StepStatus.DRAFT,
+            depends_on=["step-policy-understanding"],
+            claims=[
+                _claim(
+                    "claim-major",
+                    "Licensed providers must submit an annual energy-use report by March 31.",
+                    ev_report.id,
+                    status=VerificationStatus.NEEDS_HUMAN_REVIEW,
+                )
+            ],
+            ai_output="The clearest reporting deadline is March 31.",
+            human_review=HumanReview(status=HumanReviewStatus.NOT_REVIEWED),
+            version=1,
+        ),
+        AnalysisStep(
+            id="step-stakeholders",
+            kind=StepKind.STAKEHOLDERS,
+            title="Stakeholders",
+            status=StepStatus.DRAFT,
+            depends_on=["step-major-provisions"],
+            claims=[
+                _claim(
+                    "claim-stakeholders",
+                    "Licensed providers are directly affected by the reporting requirement.",
+                    ev_report.id,
+                    status=VerificationStatus.NEEDS_HUMAN_REVIEW,
+                )
+            ],
+            ai_output="Licensed providers are directly affected.",
+            human_review=HumanReview(status=HumanReviewStatus.NOT_REVIEWED),
+            version=1,
+        ),
+    ]
+
+    return AnalysisRun(
+        id="guide-guided-run",
+        mode=AnalysisMode.GUIDED,
+        policy=Policy(
+            id="guide-policy",
+            title="[GUIDE DATA] Energy Reporting Rule",
+            jurisdiction="Demo / fictional",
+            source_ids=[source.id],
+        ),
+        sources=[source],
+        evidence=[ev_record, ev_report],
+        steps=steps,
+        current_step_id=None,
+        final_review_status=HumanReviewStatus.NOT_REVIEWED,
+    )
+
+
+def make_rush_inputs() -> tuple[AnalysisRun, AnalysisRun]:
+    policy_run = make_guided_demo()
+    response_source = Source(
+        id="source-response",
+        title="[GUIDE DATA] Supplied public comment",
+        information_type=InformationType.PUBLIC_OPINION,
+        raw_text=RESPONSE_TEXT,
+        pii_redaction_status=PiiRedactionStatus.NOT_DETECTED,
+    )
+    response_ev = _evidence(response_source, "evidence-response", RESPONSE_TEXT)
+    response_step = AnalysisStep(
+        id="step-public-response",
+        kind=StepKind.PUBLIC_RESPONSE,
+        title="Public response",
+        claims=[
+            _claim(
+                "claim-response",
+                "One supplied commenter supports annual reporting because it creates a predictable schedule.",
+                response_ev.id,
+                status=VerificationStatus.NEEDS_HUMAN_REVIEW,
+            )
+        ],
+        ai_output="The supplied material includes one supportive response.",
+        human_review=HumanReview(status=HumanReviewStatus.NOT_REVIEWED),
+    )
+    response_run = AnalysisRun(
+        id="guide-response-run",
+        mode=AnalysisMode.GUIDED,
+        policy=Policy(
+            id="guide-policy",
+            title="[GUIDE DATA] Energy Reporting Rule",
+            jurisdiction="Demo / fictional",
+            source_ids=[],
+        ),
+        sources=[response_source],
+        evidence=[response_ev],
+        steps=[response_step],
+        current_step_id=response_step.id,
+        final_review_status=HumanReviewStatus.NOT_REVIEWED,
+    )
+    return policy_run, response_run
+
+
+def _empty_response_analysis(policy_analysis: AnalysisRun) -> AnalysisRun:
+    policy = policy_analysis.policy.model_copy(deep=True)
+    policy.source_ids = []
+    return AnalysisRun(
+        id=f"empty-response-{policy_analysis.id}",
+        mode=AnalysisMode.GUIDED,
+        policy=policy,
+        sources=[],
+        evidence=[],
+        steps=[],
+        current_step_id=None,
+        final_review_status=HumanReviewStatus.NOT_REVIEWED,
+    )
+
+
+def _guided_combined(
+    policy_analysis: AnalysisRun,
+    response_analysis: AnalysisRun,
+) -> AnalysisRun:
+    combined = combine_analysis_runs(policy_analysis, response_analysis)
+    combined.mode = AnalysisMode.GUIDED
+    combined.current_step_id = None
+    combined.final_review_status = HumanReviewStatus.NOT_REVIEWED
+    for step in combined.steps:
+        step.human_review.status = HumanReviewStatus.NOT_REVIEWED
+    return AnalysisRun.model_validate(combined.model_dump(mode="python"))
+
+
+def deterministic_verifier(system_prompt: str, user_prompt: str) -> str:
+    del system_prompt
+    if "Claim ID:" not in user_prompt:
+        raise ValueError("guide verifier expected a claim prompt")
+    return json.dumps(
+        {
+            "status": "supported",
+            "explanation": "Guide verifier: the cited passage directly supports this claim.",
+            "narrower_wording": None,
+        }
+    )
+
+
+class RuntimeProvider:
+    """Local-process-only provider credentials. Secrets are never serialized."""
+
+    def __init__(self) -> None:
+        self.clear()
+
+    def clear(self) -> None:
+        self.kind = "deterministic"
+        self.model = ""
+        self.base_url = ""
+        self.endpoint = ""
+        self.api_key = ""
+        self.bearer_token = ""
+        self.regulations_api_key = ""
+
+    def configure(self, data: dict[str, Any]) -> dict[str, Any]:
+        kind = str(data.get("kind", "deterministic")).strip().lower()
+        if kind not in {"deterministic", "openrouter", "openai", "foundry"}:
+            raise ValueError("provider must be deterministic, openrouter, openai, or foundry")
+
+        self.kind = kind
+        self.model = str(data.get("model", "")).strip()
+        self.base_url = str(data.get("base_url", "")).strip()
+        self.endpoint = str(data.get("endpoint", "")).strip()
+        self.api_key = str(data.get("api_key", "")).strip()
+        self.bearer_token = str(data.get("bearer_token", "")).strip()
+        self.regulations_api_key = str(data.get("regulations_api_key", "")).strip()
+
+        if kind == "openrouter":
+            if not self.api_key:
+                raise ValueError("OpenRouter API key is required")
+            if not self.model:
+                self.model = DEFAULT_OPENROUTER_MODEL
+            if not self.base_url:
+                self.base_url = DEFAULT_OPENROUTER_BASE_URL
+        elif kind == "openai":
+            if not self.api_key:
+                raise ValueError("OpenAI API key is required")
+            if not self.model:
+                raise ValueError("OpenAI model is required")
+        elif kind == "foundry":
+            if not self.endpoint:
+                raise ValueError("Foundry endpoint is required")
+            if not self.model:
+                raise ValueError("Foundry model is required")
+            if bool(self.api_key) == bool(self.bearer_token):
+                raise ValueError("Foundry requires exactly one API key or bearer token")
+
+        return self.status()
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "model": self.model,
+            "base_url": self.base_url,
+            "endpoint": self.endpoint,
+            "has_api_key": bool(self.api_key),
+            "has_bearer_token": bool(self.bearer_token),
+            "has_regulations_api_key": bool(self.regulations_api_key),
+            "credentials_storage": "process_memory_only",
+            "regulations_note": (
+                "Used only by the local live-comment ingestion route and kept "
+                "in process memory."
+            ),
+        }
+
+    def model_call(self) -> Callable[[str, str], str]:
+        if self.kind == "deterministic":
+            return deterministic_verifier
+        if self.kind == "openrouter":
+            client = OpenRouterChatClient(
+                OpenRouterConfig(
+                    api_key=self.api_key,
+                    model=self.model or DEFAULT_OPENROUTER_MODEL,
+                    base_url=self.base_url or DEFAULT_OPENROUTER_BASE_URL,
+                )
+            )
+            return client.complete_json
+        if self.kind == "openai":
+            client = OpenAIChatClient(
+                OpenAIConfig(
+                    api_key=self.api_key,
+                    model=self.model,
+                    base_url=self.base_url or "https://api.openai.com/v1",
+                )
+            )
+            return client.complete_json
+
+        client = FoundryChatClient(
+            FoundryConfig(
+                endpoint=self.endpoint,
+                model=self.model,
+                api_key=self.api_key or None,
+                bearer_token=self.bearer_token or None,
+            )
+        )
+        return client.complete_json
+
+
+class GuideState:
+    def __init__(self) -> None:
+        self.analysis = make_guided_demo()
+        self.provider = RuntimeProvider()
+        self.document: NormalizedPolicyDocument | None = None
+        self.policy_analysis: AnalysisRun | None = None
+        self.response_analysis: AnalysisRun | None = None
+
+    def _require_live_model(self) -> None:
+        if self.provider.kind == "deterministic":
+            raise ValueError(
+                "Live source analysis requires OpenRouter, OpenAI, or Microsoft Foundry. "
+                "Configure a provider first, or keep using the fictional demo."
+            )
+
+    def _guided_loaded_analysis(self) -> AnalysisRun:
+        if self.policy_analysis is None:
+            return make_guided_demo()
+        if self.response_analysis is None:
+            loaded = AnalysisRun.model_validate(
+                self.policy_analysis.model_dump(mode="python")
+            )
+            loaded.mode = AnalysisMode.GUIDED
+            loaded.current_step_id = None
+            loaded.final_review_status = HumanReviewStatus.NOT_REVIEWED
+            for step in loaded.steps:
+                step.human_review.status = HumanReviewStatus.NOT_REVIEWED
+            return AnalysisRun.model_validate(loaded.model_dump(mode="python"))
+        return _guided_combined(self.policy_analysis, self.response_analysis)
+
+    def reset(self, mode: str = "guided") -> AnalysisRun:
+        if mode == "rush":
+            return self.run_rush()
+        self.analysis = self._guided_loaded_analysis()
+        return self.analysis
+
+    def load_policy(self, document_number: str) -> AnalysisRun:
+        document_number = document_number.strip()
+        if not document_number:
+            raise ValueError("Federal Register document number is required")
+        self._require_live_model()
+
+        try:
+            document = fetch_and_normalize(document_number)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not load Federal Register document {document_number}: {exc}"
+            ) from exc
+
+        analysis = run_policy_interpreter(
+            document,
+            self.provider.model_call(),
+            mode=AnalysisMode.GUIDED,
+        )
+        self.document = document
+        self.policy_analysis = analysis
+        self.response_analysis = None
+        self.analysis = AnalysisRun.model_validate(
+            analysis.model_dump(mode="python")
+        )
+        self.analysis.current_step_id = None
+        return AnalysisRun.model_validate(self.analysis.model_dump(mode="python"))
+
+    def load_comments(
+        self,
+        docket_id: str,
+        *,
+        max_comments: int = 12,
+    ) -> AnalysisRun:
+        docket_id = docket_id.strip()
+        if not docket_id:
+            raise ValueError("Regulations.gov docket ID is required")
+        if self.document is None or self.policy_analysis is None:
+            raise ValueError("Load a Federal Register policy before loading comments")
+        if not self.provider.regulations_api_key:
+            raise ValueError(
+                "A Regulations.gov API key is required to load live comments"
+            )
+        if max_comments < 1 or max_comments > 100:
+            raise ValueError("max_comments must be between 1 and 100")
+        self._require_live_model()
+
+        try:
+            records = fetch_comments_for_docket(
+                docket_id,
+                api_key=self.provider.regulations_api_key,
+                max_comments=max_comments,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not load Regulations.gov docket {docket_id}: {exc}"
+            ) from exc
+        if not records:
+            raise ValueError(
+                f"No usable Regulations.gov comments were returned for {docket_id}"
+            )
+
+        response_sources = [
+            source_from_response_record(record)
+            for record in records
+        ]
+        response_analysis = run_response_viewpoint_analyst(
+            self.document,
+            response_sources,
+            self.provider.model_call(),
+            mode=AnalysisMode.GUIDED,
+        )
+        self.response_analysis = response_analysis
+        self.analysis = _guided_combined(
+            self.policy_analysis,
+            response_analysis,
+        )
+        return self.analysis
+
+    def guided_begin(self, step_id: str | None = None) -> AnalysisRun:
+        self.analysis = begin_guided_review(self.analysis, step_id=step_id)
+        return self.analysis
+
+    def guided_clarify(self, note: str) -> AnalysisRun:
+        self.analysis = clarify_current_step(self.analysis, note)
+        return self.analysis
+
+    def guided_edit(self, claim_id: str, text: str) -> AnalysisRun:
+        self.analysis = edit_current_claim(self.analysis, claim_id, text)
+        return self.analysis
+
+    def guided_flag(self, claim_id: str, note: str | None) -> AnalysisRun:
+        self.analysis = flag_current_claim(self.analysis, claim_id, note)
+        return self.analysis
+
+    def guided_verify(self, claim_id: str) -> AnalysisRun:
+        self.analysis = verify_current_claim(
+            self.analysis,
+            claim_id,
+            self.provider.model_call(),
+        )
+        return self.analysis
+
+    def guided_next(self) -> AnalysisRun:
+        self.analysis = next_guided_step(self.analysis)
+        return self.analysis
+
+    def run_rush(self) -> AnalysisRun:
+        if self.policy_analysis is None:
+            policy_run, response_run = make_rush_inputs()
+        else:
+            policy_run = self.policy_analysis
+            response_run = (
+                self.response_analysis
+                if self.response_analysis is not None
+                else _empty_response_analysis(policy_run)
+            )
+        self.analysis = run_rush_analysis(
+            policy_run,
+            response_run,
+            self.provider.model_call(),
+        )
+        return self.analysis
+
+    def rush_open(self, step_id: str) -> AnalysisRun:
+        self.analysis = open_rush_step_for_review(self.analysis, step_id)
+        return self.analysis
+
+    def rush_final(self) -> AnalysisRun:
+        self.analysis = return_to_rush_final_review(self.analysis)
+        return self.analysis
+
+    def rush_approve(self) -> AnalysisRun:
+        self.analysis = approve_rush_final_review(self.analysis)
+        return self.analysis
+
+    def reanalyze(self, step_id: str, text: str) -> AnalysisRun:
+        replacement_text = text.strip()
+        if not replacement_text:
+            raise ValueError("replacement claim text must not be empty")
+
+        def regenerate(snapshot: AnalysisRun, selected: AnalysisStep) -> ReanalysisResult:
+            del snapshot
+            replacement = selected.model_copy(deep=True)
+            if not replacement.claims:
+                raise ValueError("selected guide step has no claims")
+            replacement.claims[0].text = replacement_text
+            replacement.claims[0].verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
+            replacement.claims[0].verification_note = (
+                "Guide re-analysis changed this claim; re-verification is required."
+            )
+            return ReanalysisResult(step=replacement)
+
+        self.analysis = reanalyze_step(self.analysis, step_id, regenerate)
+        return self.analysis
+
+    def refresh(self, step_id: str) -> AnalysisRun:
+        def regenerate(snapshot: AnalysisRun, selected: AnalysisStep) -> ReanalysisResult:
+            del snapshot
+            replacement = selected.model_copy(deep=True)
+            replacement.ai_output = (
+                (replacement.ai_output or replacement.title)
+                + " [refreshed from current dependencies]"
+            )
+            for claim in replacement.claims:
+                claim.verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
+                claim.verification_note = (
+                    "Guide refresh changed this section; re-verification is required."
+                )
+            return ReanalysisResult(step=replacement)
+
+        self.analysis = refresh_step(self.analysis, step_id, regenerate)
+        return self.analysis
+
+    def review_reanalysis(self, step_id: str) -> AnalysisRun:
+        step = next((item for item in self.analysis.steps if item.id == step_id), None)
+        if step is None:
+            raise ValueError(f"unknown analysis step {step_id!r}")
+        if step.status == StepStatus.NEEDS_REFRESH:
+            raise ValueError("refresh this step before marking it reviewed")
+
+        for claim in step.claims:
+            if claim.verification_status == VerificationStatus.NEEDS_HUMAN_REVIEW:
+                checked = begin_guided_review(self.analysis, step_id=step.id)
+                self.analysis = verify_current_claim(
+                    checked,
+                    claim.id,
+                    self.provider.model_call(),
+                )
+                step = next(item for item in self.analysis.steps if item.id == step_id)
+
+        step.status = StepStatus.VERIFIED
+        step.human_review.status = HumanReviewStatus.REVIEWED
+        self.analysis = AnalysisRun.model_validate(self.analysis.model_dump(mode="python"))
+        return self.analysis
+
+    def brief(self) -> AnalysisRun:
+        self.analysis = build_final_brief(self.analysis)
+        return self.analysis
+
+
+STATE = GuideState()
+
+
+def _json_bytes(payload: Any) -> bytes:
+    if isinstance(payload, AnalysisRun):
+        payload = payload.model_dump(mode="json")
+    return json.dumps(payload, indent=2).encode("utf-8")
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "PolicyTraceFullStackGuide/1.3"
+
+    def _send(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_json(self, status: int, payload: Any) -> None:
+        self._send(status, _json_bytes(payload), "application/json; charset=utf-8")
+
+    def _body_json(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0:
+            return {}
+        raw = self.rfile.read(length)
+        value = json.loads(raw.decode("utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError("request body must be a JSON object")
+        return value
+
+    def _static(self, filename: str, content_type: str) -> None:
+        path = APP_DIR / filename
+        if not path.exists():
+            self._send_json(404, {"error": "not found"})
+            return
+        self._send(200, path.read_bytes(), content_type)
+
+    def do_GET(self) -> None:
+        if self.path in {"/", "/index.html"}:
+            self._static("index.html", "text/html; charset=utf-8")
+            return
+        if self.path == "/app.js":
+            self._static("app.js", "text/javascript; charset=utf-8")
+            return
+        if self.path == "/styles.css":
+            self._static("styles.css", "text/css; charset=utf-8")
+            return
+        if self.path == "/favicon.ico":
+            self._send(204, b"", "image/x-icon")
+            return
+        if self.path == "/api/analysis":
+            self._send_json(200, STATE.analysis)
+            return
+        if self.path == "/api/provider":
+            self._send_json(200, STATE.provider.status())
+            return
+        self._send_json(404, {"error": "not found"})
+
+    def do_POST(self) -> None:
+        try:
+            body = self._body_json()
+            if self.path == "/api/provider":
+                self._send_json(200, STATE.provider.configure(body))
+                return
+            if self.path == "/api/provider/clear":
+                STATE.provider.clear()
+                self._send_json(200, STATE.provider.status())
+                return
+
+            if self.path == "/api/source/load":
+                result = STATE.load_policy(
+                    str(body.get("document_number", ""))
+                )
+            elif self.path == "/api/source/comments":
+                try:
+                    max_comments = int(body.get("max_comments", 12))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("max_comments must be an integer") from exc
+                result = STATE.load_comments(
+                    str(body.get("docket_id", "")),
+                    max_comments=max_comments,
+                )
+            elif self.path == "/api/reset":
+                result = STATE.reset(str(body.get("mode", "guided")))
+            elif self.path == "/api/guided/begin":
+                result = STATE.guided_begin(body.get("step_id"))
+            elif self.path == "/api/guided/clarify":
+                result = STATE.guided_clarify(str(body.get("note", "")))
+            elif self.path == "/api/guided/edit":
+                result = STATE.guided_edit(
+                    str(body.get("claim_id", "")),
+                    str(body.get("text", "")),
+                )
+            elif self.path == "/api/guided/flag":
+                note = body.get("note")
+                result = STATE.guided_flag(
+                    str(body.get("claim_id", "")),
+                    None if note is None else str(note),
+                )
+            elif self.path == "/api/guided/verify":
+                result = STATE.guided_verify(str(body.get("claim_id", "")))
+            elif self.path == "/api/guided/next":
+                result = STATE.guided_next()
+            elif self.path == "/api/rush/run":
+                result = STATE.run_rush()
+            elif self.path == "/api/rush/open":
+                result = STATE.rush_open(str(body.get("step_id", "")))
+            elif self.path == "/api/rush/final":
+                result = STATE.rush_final()
+            elif self.path == "/api/rush/approve":
+                result = STATE.rush_approve()
+            elif self.path == "/api/reanalysis/step":
+                result = STATE.reanalyze(
+                    str(body.get("step_id", "")),
+                    str(body.get("text", "")),
+                )
+            elif self.path == "/api/reanalysis/refresh":
+                result = STATE.refresh(str(body.get("step_id", "")))
+            elif self.path == "/api/reanalysis/review":
+                result = STATE.review_reanalysis(str(body.get("step_id", "")))
+            elif self.path == "/api/brief":
+                result = STATE.brief()
+            else:
+                self._send_json(404, {"error": "not found"})
+                return
+            self._send_json(200, result)
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": str(exc)})
+        except RuntimeError as exc:
+            self._send_json(502, {"error": str(exc)})
+
+    def log_message(self, format: str, *args: Any) -> None:
+        print(f"[FULL STACK GUIDE] {self.address_string()} - {format % args}")
+
+
+def main() -> None:
+    missing = [
+        name
+        for name in ("index.html", "app.js", "styles.css")
+        if not (APP_DIR / name).exists()
+    ]
+    if missing:
+        raise SystemExit(f"missing guide files: {', '.join(missing)}")
+
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    print("PolicyTrace Full-Stack Reference")
+    print("==============================")
+    print(f"Open http://{HOST}:{PORT}/")
+    print("Guide app only. Does not modify the human frontend.")
+    print("Provider credentials entered in the browser stay in this Python process only.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopping full-stack guide.")
+
+
+if __name__ == "__main__":
+    main()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 from model_json import extract_json_value, strip_json_fence
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from urllib.request import Request, urlopen
 
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OPENROUTER_MODEL = "openrouter/free"
+_TRANSIENT_HTTP_CODES = {408, 429, 500, 502, 503, 504}
 
 
 def _completion_url(base_url: str) -> str:
@@ -44,7 +46,7 @@ class OpenRouterConfig:
     api_key: str
     model: str = DEFAULT_OPENROUTER_MODEL
     base_url: str = DEFAULT_OPENROUTER_BASE_URL
-    timeout_seconds: int = 90
+    timeout_seconds: int = 180
 
     @classmethod
     def from_env(cls) -> "OpenRouterConfig":
@@ -99,18 +101,36 @@ class OpenRouterChatClient:
             method="POST",
         )
 
-        try:
-            with urlopen(
-                request,
-                timeout=self.config.timeout_seconds,
-            ) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except HTTPError:
-            raise
-        except URLError as exc:
-            raise RuntimeError(
-                f"OpenRouter request failed: {exc.reason}"
-            ) from exc
+        attempts = 2
+        for attempt in range(attempts):
+            try:
+                with urlopen(
+                    request,
+                    timeout=self.config.timeout_seconds,
+                ) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except HTTPError as exc:
+                if exc.code in _TRANSIENT_HTTP_CODES and attempt + 1 < attempts:
+                    time.sleep(0.5)
+                    continue
+                raise
+            except TimeoutError as exc:
+                if attempt + 1 < attempts:
+                    time.sleep(0.5)
+                    continue
+                raise RuntimeError(
+                    "OpenRouter request timed out after retrying. "
+                    f"timeout={self.config.timeout_seconds}s"
+                ) from exc
+            except URLError as exc:
+                if attempt + 1 < attempts:
+                    time.sleep(0.5)
+                    continue
+                raise RuntimeError(
+                    f"OpenRouter request failed after retrying: {exc.reason}"
+                ) from exc
+
+        raise RuntimeError("OpenRouter request failed after retrying")
 
     def complete_json(self, system_prompt: str, user_prompt: str) -> str:
         base_payload: dict[str, object] = {

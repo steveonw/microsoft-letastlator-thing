@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PolicyTrace Full-Stack Guide</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">REFERENCE IMPLEMENTATION — NOT THE HUMAN FRONTEND</p>
+      <h1>PolicyTrace Full-Stack Guide</h1>
+      <p class="muted">Guided + Rush + selective re-analysis + final brief, wired to the real backend workflow functions.</p>
+    </div>
+    <div class="status-cluster">
+      <span id="mode-badge" class="badge">—</span>
+      <span id="provider-badge" class="badge">deterministic</span>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="card settings">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Local runtime only</p>
+          <h2>Provider settings</h2>
+        </div>
+        <button id="clear-provider" class="secondary">Clear credentials</button>
+      </div>
+      <p class="muted">
+        Secrets entered here are sent only to <code>127.0.0.1:8777</code>, kept in Python process memory,
+        never returned by the API, and disappear when the server stops.
+      </p>
+
+      <div class="settings-grid">
+        <label>
+          Provider
+          <select id="provider-kind">
+            <option value="deterministic">Deterministic demo</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="openai">OpenAI</option>
+            <option value="foundry">Microsoft Foundry</option>
+          </select>
+        </label>
+
+        <label>
+          Model
+          <input id="provider-model" placeholder="e.g. openrouter/free">
+        </label>
+
+        <label>
+          Base URL
+          <input id="provider-base-url" placeholder="optional">
+        </label>
+
+        <label>
+          Foundry endpoint
+          <input id="provider-endpoint" placeholder="https://...">
+        </label>
+
+        <label>
+          API key
+          <input id="provider-api-key" type="password" autocomplete="off" placeholder="kept in memory only">
+        </label>
+
+        <label>
+          Foundry bearer token
+          <input id="provider-bearer" type="password" autocomplete="off" placeholder="use instead of API key">
+        </label>
+
+        <label>
+          Regulations.gov API key
+          <input id="regulations-key" type="password" autocomplete="off" placeholder="stored for live-ingestion wiring">
+        </label>
+      </div>
+
+      <div class="row">
+        <button id="save-provider" class="primary">Use these local settings</button>
+        <span id="provider-status" class="muted"></span>
+      </div>
+    </section>
+
+    <section class="card settings">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Real source input</p>
+          <h2>Policy source</h2>
+        </div>
+      </div>
+      <p class="muted">
+        For live analysis, configure OpenRouter, OpenAI, or Foundry above. The Federal Register
+        document number is fetched and normalized by the existing PolicyTrace ingestion pipeline.
+        Regulations.gov comments are optional and require the Regulations.gov key above.
+      </p>
+
+      <div class="settings-grid">
+        <label>
+          Federal Register document number
+          <input id="document-number" value="2024-20529" placeholder="e.g. 2024-20529">
+        </label>
+
+        <label>
+          Regulations.gov docket ID
+          <input id="docket-id" value="BIS-2024-0047" placeholder="optional, e.g. BIS-2024-0047">
+        </label>
+
+        <label>
+          Maximum comments
+          <input id="max-comments" type="number" min="1" max="100" value="12">
+        </label>
+      </div>
+
+      <div class="row wrap">
+        <button id="load-policy" class="primary">Load + Analyze Policy</button>
+        <button id="load-comments">Load + Analyze Comments</button>
+      </div>
+      <p class="muted">
+        The fictional demo remains available through Reset Guided. Loading a real policy replaces
+        the authoritative in-memory AnalysisRun for this local session.
+      </p>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Mode controls</p>
+          <h2>Start / reset</h2>
+        </div>
+      </div>
+      <div class="row wrap">
+        <button id="guided-reset">Reset Guided</button>
+        <button id="guided-begin" class="primary">Begin Guided</button>
+        <button id="rush-run">Run Rush</button>
+        <button id="rush-final">Return to Rush Final Review</button>
+        <button id="rush-approve">Approve Rush Final Review</button>
+        <button id="build-brief">Build Final Brief</button>
+      </div>
+      <div id="message" class="message"></div>
+    </section>
+
+    <section class="workspace">
+      <aside class="card steps-card">
+        <div class="section-head">
+          <h2>Steps</h2>
+          <span id="step-count" class="badge">0</span>
+        </div>
+        <div id="steps" class="steps"></div>
+      </aside>
+
+      <section class="card analysis-card">
+        <div class="section-head">
+          <div>
+            <p id="step-kind" class="eyebrow">Select a step</p>
+            <h2 id="step-title">—</h2>
+          </div>
+          <span id="step-status" class="badge">—</span>
+        </div>
+
+        <p id="ai-output" class="ai-output"></p>
+
+        <div class="meta-grid">
+          <div><span>Version</span><strong id="step-version">—</strong></div>
+          <div><span>Human review</span><strong id="human-status">—</strong></div>
+          <div><span>Depends on</span><strong id="depends-on">—</strong></div>
+          <div><span>Current</span><strong id="current-step">—</strong></div>
+        </div>
+
+        <h3>Claims</h3>
+        <div id="claims" class="claims"></div>
+
+        <div class="action-panel">
+          <h3>Guided actions</h3>
+          <div class="row wrap">
+            <button id="clarify">Clarify</button>
+            <button id="edit">Edit selected claim</button>
+            <button id="verify">Verify selected claim</button>
+            <button id="flag">Flag selected claim</button>
+            <button id="next" class="primary">Next</button>
+          </div>
+        </div>
+
+        <div class="action-panel">
+          <h3>Chunk 9 actions</h3>
+          <div class="row wrap">
+            <button id="reanalyze">Re-analyze selected step</button>
+            <button id="refresh">Refresh selected step</button>
+            <button id="review-reanalysis">Verify + mark reviewed</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="card evidence-card">
+        <div class="section-head">
+          <h2>Evidence</h2>
+          <span id="evidence-count" class="badge">0</span>
+        </div>
+        <div id="evidence" class="evidence-list"></div>
+
+        <h2>Review notes</h2>
+        <div id="review-notes" class="notes"></div>
+      </aside>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Traceable output</p>
+          <h2>Final brief</h2>
+        </div>
+        <span id="final-review" class="badge">—</span>
+      </div>
+      <pre id="brief-output">No final brief yet.</pre>
+    </section>
+
+    <section class="card guide-note">
+      <h2>What the human collaborator can copy from this</h2>
+      <p>
+        Keep the real frontend's visual design. Copy the request/response pattern:
+        frontend selects IDs and sends actions; Python mutates the authoritative <code>AnalysisRun</code>;
+        every successful action returns the complete updated run; the browser renders it.
+      </p>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
