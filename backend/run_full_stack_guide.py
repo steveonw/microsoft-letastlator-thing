@@ -559,25 +559,49 @@ class GuideState:
         step_id: str,
         text: str,
         *,
+        claim_id: str | None = None,
         human_edited: bool = True,
     ) -> AnalysisRun:
         replacement_text = text.strip()
         if not replacement_text:
             raise ValueError("replacement claim text must not be empty")
 
+        requested_claim_id = (claim_id or "").strip()
+
         def regenerate(snapshot: AnalysisRun, selected: AnalysisStep) -> ReanalysisResult:
             del snapshot
             replacement = selected.model_copy(deep=True)
             if not replacement.claims:
                 raise ValueError("selected guide step has no claims")
-            replacement.claims[0].text = replacement_text
-            replacement.claims[0].verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
-            replacement.claims[0].verification_note = (
+
+            if requested_claim_id:
+                target = next(
+                    (
+                        claim
+                        for claim in replacement.claims
+                        if claim.id == requested_claim_id
+                    ),
+                    None,
+                )
+                if target is None:
+                    raise ValueError(
+                        f"claim {requested_claim_id!r} is not part of step {step_id!r}"
+                    )
+            elif len(replacement.claims) == 1:
+                # Preserve compatibility with the reviewer harness and older
+                # one-claim callers while avoiding ambiguous edits.
+                target = replacement.claims[0]
+            else:
+                raise ValueError(
+                    "claim_id is required when re-analyzing a step with multiple claims"
+                )
+
+            target.text = replacement_text
+            target.verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
+            target.verification_note = (
                 "Guide re-analysis changed this claim; re-verification is required."
             )
-            edited = (
-                (replacement.claims[0].id,) if human_edited else ()
-            )
+            edited = (target.id,) if human_edited else ()
             return ReanalysisResult(
                 step=replacement,
                 human_edited_claim_ids=edited,
@@ -748,9 +772,11 @@ class Handler(BaseHTTPRequestHandler):
                     bool(body.get("acknowledge_unreviewed", False))
                 )
             elif self.path == "/api/reanalysis/step":
+                claim_id = str(body.get("claim_id", "")).strip() or None
                 result = STATE.reanalyze(
                     str(body.get("step_id", "")),
                     str(body.get("text", "")),
+                    claim_id=claim_id,
                     human_edited=bool(body.get("human_edited", True)),
                 )
             elif self.path == "/api/reanalysis/refresh":
