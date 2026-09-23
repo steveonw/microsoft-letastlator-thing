@@ -290,21 +290,12 @@ def build_final_brief(analysis: AnalysisRun) -> AnalysisRun:
         step for step in updated.steps if step.kind != StepKind.DRAFT_BRIEF
     ]
 
-    dependency_ids = [step.id for step in eligible]
-    verification_steps = [
-        step
-        for step in updated.steps
-        if step.kind == StepKind.VERIFICATION
-    ]
-    if verification_steps:
-        dependency_ids.extend(step.id for step in verification_steps)
-
     brief = AnalysisStep(
         id="step-draft-brief",
         kind=StepKind.DRAFT_BRIEF,
         title="Final policy brief",
         status=StepStatus.DRAFT,
-        depends_on=dependency_ids,
+        depends_on=[step.id for step in eligible],
         claims=[],
         ai_output=_brief_text(updated, eligible),
         human_review=HumanReview(status=HumanReviewStatus.IN_REVIEW),
