@@ -203,6 +203,40 @@ class ClaimVerifierTests(unittest.TestCase):
         self.assertIn("supported: 1", verified.steps[-1].ai_output)
         self.assertIn("needs_human_review: 1", verified.steps[-1].ai_output)
 
+    def test_provider_failure_does_not_abort_remaining_claims(self) -> None:
+        analysis = analysis_with_claim()
+        second = analysis.steps[0].claims[0].model_copy(deep=True)
+        second.id = "claim-2"
+        second.text = "A second claim with the same grounded evidence."
+        analysis.steps[0].claims.append(second)
+
+        calls = 0
+
+        def model_call(system_prompt: str, user_prompt: str) -> str:
+            nonlocal calls
+            del system_prompt, user_prompt
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("OpenRouter request timed out after retrying")
+            return json.dumps(
+                {
+                    "status": "supported",
+                    "explanation": "The second claim is supported.",
+                    "narrower_wording": None,
+                }
+            )
+
+        verified = verify_analysis(analysis, model_call)
+        first, second = verified.steps[0].claims
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(
+            first.verification_status,
+            VerificationStatus.NEEDS_HUMAN_REVIEW,
+        )
+        self.assertIn("model provider failed", first.verification_note)
+        self.assertEqual(second.verification_status, VerificationStatus.SUPPORTED)
+
     def test_schema_invalid_reply_does_not_abort_batch(self) -> None:
         analysis = analysis_with_claim()
 
