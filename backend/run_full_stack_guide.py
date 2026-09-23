@@ -42,7 +42,12 @@ from openrouter_client import (
     OpenRouterConfig,
 )
 from policy_interpreter import run_policy_interpreter
-from response_sources import fetch_comments_for_docket, source_from_response_record
+from response_sources import (
+    CommentFetchError,
+    CommentFetchReport,
+    fetch_comments_for_docket_with_report,
+    source_from_response_record,
+)
 from response_viewpoint_analyst import run_response_viewpoint_analyst
 from rush_mode import (
     approve_rush_final_review,
@@ -402,6 +407,7 @@ class GuideState:
         self.document: NormalizedPolicyDocument | None = None
         self.policy_analysis: AnalysisRun | None = None
         self.response_analysis: AnalysisRun | None = None
+        self.last_comment_fetch_report: CommentFetchReport | None = None
 
     def _require_live_model(self) -> None:
         if self.provider.kind == "deterministic":
@@ -477,12 +483,20 @@ class GuideState:
             raise ValueError("max_comments must be between 1 and 100")
         self._require_live_model()
 
+        self.last_comment_fetch_report = None
         try:
-            records = fetch_comments_for_docket(
+            fetched = fetch_comments_for_docket_with_report(
                 docket_id,
                 api_key=self.provider.regulations_api_key,
                 max_comments=max_comments,
             )
+            self.last_comment_fetch_report = fetched.report
+            records = fetched.records
+        except CommentFetchError as exc:
+            self.last_comment_fetch_report = exc.report
+            raise RuntimeError(
+                f"Could not load Regulations.gov docket {docket_id}: {exc}"
+            ) from exc
         except Exception as exc:
             raise RuntimeError(
                 f"Could not load Regulations.gov docket {docket_id}: {exc}"
@@ -923,6 +937,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/provider":
             self._send_json(200, STATE.provider.status())
+            return
+        if self.path == "/api/source/comments/status":
+            report = STATE.last_comment_fetch_report
+            self._send_json(
+                200,
+                {
+                    "report": (
+                        None
+                        if report is None
+                        else report.model_dump(mode="json")
+                    )
+                },
+            )
             return
         if self.path == "/api/errors":
             self._send_json(
