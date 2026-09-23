@@ -250,3 +250,85 @@ class ProviderConfigurationTests(unittest.TestCase):
         status = state.provider.configure({"kind": "openrouter", "api_key": "k"})
         self.assertTrue(status["model"])
         self.assertTrue(status["base_url"])
+
+
+class GuidedNavigationAndInvalidationTests(unittest.TestCase):
+    def test_explicit_navigation_controls_which_section_next_accepts(self) -> None:
+        state = GuideState()
+        state.reset("guided")
+        first_id = state.analysis.steps[0].id
+        second_id = state.analysis.steps[1].id
+
+        state.guided_begin(first_id)
+        state.guided_begin(second_id)
+        advanced = state.guided_next()
+
+        first = next(step for step in advanced.steps if step.id == first_id)
+        second = next(step for step in advanced.steps if step.id == second_id)
+        self.assertEqual(first.human_review.status, HumanReviewStatus.IN_REVIEW)
+        self.assertEqual(second.human_review.status, HumanReviewStatus.REVIEWED)
+
+    def test_guided_edit_invalidates_reviewed_dependents(self) -> None:
+        state = GuideState()
+        state.reset("guided")
+        first = state.guided_begin(None).steps[0]
+
+        state.guided_next()
+        state.guided_next()
+        finished = state.guided_next()
+        self.assertIsNone(finished.current_step_id)
+
+        state.guided_begin(first.id)
+        edited = state.guided_edit(first.claims[0].id, "Human corrected wording.")
+
+        downstream = edited.steps[1:]
+        self.assertTrue(downstream)
+        self.assertTrue(
+            all(step.status == StepStatus.NEEDS_REFRESH for step in downstream)
+        )
+        self.assertTrue(
+            all(
+                step.human_review.status == HumanReviewStatus.NOT_REVIEWED
+                for step in downstream
+            )
+        )
+
+
+class FinalApprovalFlowTests(unittest.TestCase):
+    def test_rush_section_review_preserves_rush_mode(self) -> None:
+        state = GuideState()
+        rushed = state.reset("rush")
+        reviewed = state.review_reanalysis(rushed.steps[0].id)
+
+        self.assertEqual(reviewed.mode, AnalysisMode.RUSH)
+        self.assertEqual(
+            reviewed.steps[0].human_review.status,
+            HumanReviewStatus.REVIEWED,
+        )
+
+    def test_guided_final_brief_requires_all_sections_and_can_be_approved(self) -> None:
+        state = GuideState()
+        state.reset("guided")
+        state.guided_begin(None)
+        state.guided_next()
+        state.guided_next()
+        state.guided_next()
+
+        briefed = state.brief()
+        self.assertEqual(briefed.final_review_status, HumanReviewStatus.IN_REVIEW)
+
+        approved = state.approve_final_brief()
+        self.assertEqual(approved.final_review_status, HumanReviewStatus.APPROVED)
+        brief = next(step for step in approved.steps if step.kind.value == "draft_brief")
+        self.assertEqual(brief.human_review.status, HumanReviewStatus.APPROVED)
+
+    def test_final_approval_refuses_unreviewed_sections(self) -> None:
+        state = GuideState()
+        state.reset("guided")
+        state.guided_begin(None)
+        state.guided_next()
+        state.brief()
+
+        with self.assertRaises(ValueError) as refused:
+            state.approve_final_brief()
+        self.assertIn("unreviewed", str(refused.exception))

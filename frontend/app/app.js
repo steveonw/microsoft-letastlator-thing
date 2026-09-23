@@ -69,7 +69,27 @@ async function api(path, payload) {
 const steps = () => run?.steps ?? [];
 const stepById = (id) => steps().find((s) => s.id === id) ?? null;
 const currentStep = () =>
-  stepById(selectedStepId) ?? stepById(run?.current_step_id) ?? steps()[0] ?? null;
+  stepById(selectedStepId) ?? stepById(run?.current_step_id) ?? null;
+
+const contentSteps = () =>
+  steps().filter((step) => !["verification", "draft_brief"].includes(step.kind));
+
+function allContentReviewed() {
+  const items = contentSteps();
+  return (
+    items.length > 0 &&
+    items.every(
+      (step) =>
+        step.status !== "needs_refresh" &&
+        ["reviewed", "approved"].includes(step.human_review?.status)
+    )
+  );
+}
+
+function stepDisplayStatus(step) {
+  if (step.status === "needs_refresh") return step.status;
+  return step.human_review?.status ?? step.status;
+}
 
 function claimsOf(step) {
   return step?.claims ?? [];
@@ -111,7 +131,9 @@ function renderSections() {
   const list = byId("section-list");
   list.replaceChildren();
 
-  steps().forEach((step, index) => {
+  steps()
+    .filter((step) => step.kind !== "draft_brief")
+    .forEach((step, index) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "section-item";
@@ -122,9 +144,10 @@ function renderSections() {
     title.className = "section-name";
     title.textContent = `${index + 1}. ${step.title}`;
 
+    const displayStatus = stepDisplayStatus(step);
     const status = document.createElement("span");
-    status.className = `tag ${step.status}`;
-    status.textContent = say(step.status);
+    status.className = `tag ${displayStatus}`;
+    status.textContent = say(displayStatus);
 
     button.append(title, status);
 
@@ -136,7 +159,14 @@ function renderSections() {
       button.append(edited);
     }
 
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
+      const opened =
+        run.mode === "rush"
+          ? await api("/api/rush/open", { step_id: step.id })
+          : await api("/api/guided/begin", { step_id: step.id });
+      if (!opened) return;
+
+      run = opened;
       selectedStepId = step.id;
       selectedClaimId = null;
       editingClaimId = null;
@@ -161,7 +191,17 @@ function renderFindings() {
       ? "You changed something this section depends on. Refresh it before reviewing."
       : "";
 
-  if (!step || !claimsOf(step).length) {
+  if (!step) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = allContentReviewed()
+      ? "All sections are reviewed. Build the final brief when you are ready."
+      : "Select a section to continue reviewing.";
+    list.append(empty);
+    return;
+  }
+
+  if (!claimsOf(step).length) {
     const empty = document.createElement("p");
     empty.className = "empty";
     empty.textContent = "No findings in this section.";
@@ -375,7 +415,24 @@ function renderActions() {
     return button;
   };
 
-  if (step?.status === "needs_refresh") {
+  const addBuildBrief = () => {
+    add("Build final brief", async () => {
+      const updated = await api("/api/brief", {});
+      if (updated) {
+        run = updated;
+        selectedStepId = null;
+        selectedClaimId = null;
+        showBrief();
+      }
+    }, "primary");
+  };
+
+  if (!step) {
+    if (allContentReviewed()) addBuildBrief();
+    return;
+  }
+
+  if (step.status === "needs_refresh") {
     add("Refresh this section", async () => {
       const updated = await api("/api/reanalysis/refresh", { step_id: step.id });
       if (updated) { run = updated; render(); }
@@ -418,22 +475,15 @@ function renderActions() {
   } else {
     add("Check all and mark section reviewed", async () => {
       const updated = await api("/api/reanalysis/review", { step_id: step.id });
-      if (updated) { run = updated; render(); }
+      if (updated) {
+        run = updated;
+        selectedStepId = step.id;
+        render();
+      }
     }, "primary");
-
-    add("Approve and finish", async () => {
-      const updated = await api("/api/rush/approve", {});
-      if (updated) { run = updated; render(); }
-    });
   }
 
-  add("Build final brief", async () => {
-    const updated = await api("/api/brief", {});
-    if (updated) {
-      run = updated;
-      showBrief();
-    }
-  });
+  if (allContentReviewed()) addBuildBrief();
 }
 
 async function saveEdit(claimId, text) {
@@ -453,23 +503,32 @@ function showBrief() {
   const brief = steps().find((s) => s.kind === "draft_brief");
   byId("brief-text").textContent = brief?.ai_output ?? "(the brief is empty)";
 
-  const content = steps().filter(
-    (s) => s.kind !== "draft_brief" && s.kind !== "verification"
-  );
+  const content = contentSteps();
   const reviewed = content.filter((s) =>
     ["reviewed", "approved"].includes(s.human_review?.status)
   );
   const skipped = content.length - reviewed.length;
 
   const notice = byId("brief-notice");
-  if (skipped > 0) {
-    notice.textContent =
-      `This brief covers ${reviewed.length} of ${content.length} sections. ` +
-      `${skipped} section${skipped === 1 ? " is" : "s are"} missing because ` +
-      `you have not reviewed ${skipped === 1 ? "it" : "them"} yet.`;
+  const approve = byId("approve-brief");
+
+  if (run.final_review_status === "approved") {
+    notice.textContent = "Final brief approved by the human reviewer.";
     notice.hidden = false;
+    approve.disabled = true;
+    approve.textContent = "Approved";
   } else {
-    notice.hidden = true;
+    approve.disabled = false;
+    approve.textContent = "Approve final brief";
+    if (skipped > 0) {
+      notice.textContent =
+        `This brief covers ${reviewed.length} of ${content.length} sections. ` +
+        `${skipped} section${skipped === 1 ? " is" : "s are"} missing because ` +
+        `you have not reviewed ${skipped === 1 ? "it" : "them"} yet.`;
+      notice.hidden = false;
+    } else {
+      notice.hidden = true;
+    }
   }
 
   byId("workspace").hidden = true;
@@ -606,6 +665,16 @@ function boot() {
   byId("back-to-work").addEventListener("click", () => {
     byId("brief-screen").hidden = true;
     byId("workspace").hidden = false;
+    selectedStepId = null;
+    render();
+  });
+
+  byId("approve-brief").addEventListener("click", async () => {
+    const updated = await api("/api/final/approve", {});
+    if (updated) {
+      run = updated;
+      showBrief();
+    }
   });
 
   render();

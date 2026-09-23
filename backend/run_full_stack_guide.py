@@ -52,6 +52,7 @@ from rush_mode import (
 from selective_reanalysis import (
     ReanalysisResult,
     build_final_brief,
+    mark_dependent_steps_needs_refresh,
     reanalyze_step,
     refresh_step,
 )
@@ -503,7 +504,12 @@ class GuideState:
         return self.analysis
 
     def guided_edit(self, claim_id: str, text: str) -> AnalysisRun:
-        self.analysis = edit_current_claim(self.analysis, claim_id, text)
+        step_id = self.analysis.current_step_id
+        if step_id is None:
+            raise ValueError("guided review has no current step")
+
+        edited = edit_current_claim(self.analysis, claim_id, text)
+        self.analysis = mark_dependent_steps_needs_refresh(edited, step_id)
         return self.analysis
 
     def guided_flag(self, claim_id: str, note: str | None) -> AnalysisRun:
@@ -635,9 +641,13 @@ class GuideState:
         if step.status == StepStatus.NEEDS_REFRESH:
             raise ValueError("refresh this step before marking it reviewed")
 
+        original_mode = self.analysis.mode
         for claim in step.claims:
             if claim.verification_status == VerificationStatus.NEEDS_HUMAN_REVIEW:
-                checked = begin_guided_review(self.analysis, step_id=step.id)
+                if original_mode == AnalysisMode.RUSH:
+                    checked = open_rush_step_for_review(self.analysis, step.id)
+                else:
+                    checked = begin_guided_review(self.analysis, step_id=step.id)
                 self.analysis = verify_current_claim(
                     checked,
                     claim.id,
@@ -647,11 +657,59 @@ class GuideState:
 
         step.status = StepStatus.VERIFIED
         step.human_review.status = HumanReviewStatus.REVIEWED
+        self.analysis.mode = original_mode
         self.analysis = AnalysisRun.model_validate(self.analysis.model_dump(mode="python"))
         return self.analysis
 
     def brief(self) -> AnalysisRun:
         self.analysis = build_final_brief(self.analysis)
+        return self.analysis
+
+    def approve_final_brief(self) -> AnalysisRun:
+        reviewed = AnalysisRun.model_validate(self.analysis.model_dump(mode="python"))
+        if reviewed.final_review_status != HumanReviewStatus.IN_REVIEW:
+            raise ValueError("final brief is not awaiting human approval")
+
+        stale = [
+            step.id
+            for step in reviewed.steps
+            if step.status == StepStatus.NEEDS_REFRESH
+        ]
+        if stale:
+            raise ValueError(
+                "cannot approve final brief while steps need refresh: "
+                f"{sorted(stale)}"
+            )
+
+        content_steps = [
+            step
+            for step in reviewed.steps
+            if step.kind not in {StepKind.VERIFICATION, StepKind.DRAFT_BRIEF}
+        ]
+        outstanding = [
+            step.id
+            for step in content_steps
+            if step.human_review.status
+            not in {HumanReviewStatus.REVIEWED, HumanReviewStatus.APPROVED}
+        ]
+        if outstanding:
+            raise ValueError(
+                "cannot approve final brief while sections are unreviewed: "
+                f"{sorted(outstanding)}"
+            )
+
+        brief = next(
+            (step for step in reviewed.steps if step.kind == StepKind.DRAFT_BRIEF),
+            None,
+        )
+        if brief is None:
+            raise ValueError("build the final brief before approving it")
+
+        brief.status = StepStatus.VERIFIED
+        brief.human_review.status = HumanReviewStatus.APPROVED
+        reviewed.current_step_id = None
+        reviewed.final_review_status = HumanReviewStatus.APPROVED
+        self.analysis = AnalysisRun.model_validate(reviewed.model_dump(mode="python"))
         return self.analysis
 
 
@@ -785,6 +843,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = STATE.review_reanalysis(str(body.get("step_id", "")))
             elif self.path == "/api/brief":
                 result = STATE.brief()
+            elif self.path == "/api/final/approve":
+                result = STATE.approve_final_brief()
             else:
                 self._send_json(404, {"error": "not found"})
                 return
