@@ -36,7 +36,7 @@ Semantic support verification is still Chunk 6.
 
 ## Duplicate and representativeness handling
 
-Every response source gets an exact-text duplicate cluster ID. The representativeness note reports both the number of supplied records and the number of unique exact-text clusters.
+Every response source with retrieved substantive content gets an exact-text duplicate cluster ID. Placeholder-only records such as `See attached file(s)` are excluded from duplicate clustering and from the model prompt until their substantive content is successfully retrieved. The representativeness note reports supplied records, records actually analyzed, unique exact-text clusters, and how many records were excluded because content was not retrieved.
 
 This is intentionally conservative: exact duplicate clustering catches obvious repeated text, but it does not claim to identify all coordinated or templated campaigns.
 
@@ -46,7 +46,7 @@ The system explicitly states that the analyzed material is not a representative 
 
 External response text is treated as untrusted data. Before it is passed to the analyst, obvious email addresses and phone numbers appearing inside comment text or extracted attachment text are redacted. Regulations.gov identity fields such as first and last name are not imported into the PolicyTrace response record.
 
-Attachment downloads are limited to the official `downloads.regulations.gov` HTTPS host, capped at 15 MB per downloaded representation, and extracted text is capped at 50,000 characters per attachment. When Regulations.gov offers multiple representations, PolicyTrace prefers TXT/HTML before PDF/DOCX. Unsupported, inaccessible, scanned/image-only, or otherwise unextractable attachments are skipped rather than treated as verified text.
+Attachment downloads are limited to the official `downloads.regulations.gov` HTTPS host, capped at 15 MB per downloaded representation, and extracted text is capped at 50,000 characters per attachment. When Regulations.gov offers multiple representations, PolicyTrace prefers TXT/HTML before PDF/DOCX. The download request uses browser-style headers because the Regulations.gov download CDN can reject custom/non-browser user-agent strings. Unsupported, inaccessible, scanned/image-only, or otherwise unextractable attachments are skipped with a visible runtime warning rather than silently treated as retrieved evidence.
 
 ## Offline demo
 
