@@ -4,8 +4,9 @@ import json
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from foundry_client import FoundryChatClient, FoundryConfig
 from guided_review import (
     begin_guided_review,
     clarify_current_step,
@@ -29,6 +30,13 @@ from models import (
     StepKind,
     StepStatus,
     VerificationStatus,
+)
+from openai_client import OpenAIChatClient, OpenAIConfig
+from openrouter_client import (
+    DEFAULT_OPENROUTER_BASE_URL,
+    DEFAULT_OPENROUTER_MODEL,
+    OpenRouterChatClient,
+    OpenRouterConfig,
 )
 from rush_mode import (
     approve_rush_final_review,
@@ -181,7 +189,6 @@ def make_guided_demo() -> AnalysisRun:
 
 def make_rush_inputs() -> tuple[AnalysisRun, AnalysisRun]:
     policy_run = make_guided_demo()
-
     response_source = Source(
         id="source-response",
         title="[GUIDE DATA] Supplied public comment",
@@ -189,11 +196,7 @@ def make_rush_inputs() -> tuple[AnalysisRun, AnalysisRun]:
         raw_text=RESPONSE_TEXT,
         pii_redaction_status=PiiRedactionStatus.NOT_DETECTED,
     )
-    response_ev = _evidence(
-        response_source,
-        "evidence-response",
-        RESPONSE_TEXT,
-    )
+    response_ev = _evidence(response_source, "evidence-response", RESPONSE_TEXT)
     response_step = AnalysisStep(
         id="step-public-response",
         kind=StepKind.PUBLIC_RESPONSE,
@@ -240,9 +243,109 @@ def deterministic_verifier(system_prompt: str, user_prompt: str) -> str:
     )
 
 
+class RuntimeProvider:
+    """Local-process-only provider credentials. Secrets are never serialized."""
+
+    def __init__(self) -> None:
+        self.clear()
+
+    def clear(self) -> None:
+        self.kind = "deterministic"
+        self.model = ""
+        self.base_url = ""
+        self.endpoint = ""
+        self.api_key = ""
+        self.bearer_token = ""
+        self.regulations_api_key = ""
+
+    def configure(self, data: dict[str, Any]) -> dict[str, Any]:
+        kind = str(data.get("kind", "deterministic")).strip().lower()
+        if kind not in {"deterministic", "openrouter", "openai", "foundry"}:
+            raise ValueError("provider must be deterministic, openrouter, openai, or foundry")
+
+        self.kind = kind
+        self.model = str(data.get("model", "")).strip()
+        self.base_url = str(data.get("base_url", "")).strip()
+        self.endpoint = str(data.get("endpoint", "")).strip()
+        self.api_key = str(data.get("api_key", "")).strip()
+        self.bearer_token = str(data.get("bearer_token", "")).strip()
+        self.regulations_api_key = str(data.get("regulations_api_key", "")).strip()
+
+        if kind == "openrouter":
+            if not self.api_key:
+                raise ValueError("OpenRouter API key is required")
+            if not self.model:
+                self.model = DEFAULT_OPENROUTER_MODEL
+            if not self.base_url:
+                self.base_url = DEFAULT_OPENROUTER_BASE_URL
+        elif kind == "openai":
+            if not self.api_key:
+                raise ValueError("OpenAI API key is required")
+            if not self.model:
+                raise ValueError("OpenAI model is required")
+        elif kind == "foundry":
+            if not self.endpoint:
+                raise ValueError("Foundry endpoint is required")
+            if not self.model:
+                raise ValueError("Foundry model is required")
+            if bool(self.api_key) == bool(self.bearer_token):
+                raise ValueError("Foundry requires exactly one API key or bearer token")
+
+        return self.status()
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "model": self.model,
+            "base_url": self.base_url,
+            "endpoint": self.endpoint,
+            "has_api_key": bool(self.api_key),
+            "has_bearer_token": bool(self.bearer_token),
+            "has_regulations_api_key": bool(self.regulations_api_key),
+            "credentials_storage": "process_memory_only",
+            "regulations_note": (
+                "Stored only for local live-ingestion wiring; the guide data path "
+                "does not call Regulations.gov yet."
+            ),
+        }
+
+    def model_call(self) -> Callable[[str, str], str]:
+        if self.kind == "deterministic":
+            return deterministic_verifier
+        if self.kind == "openrouter":
+            client = OpenRouterChatClient(
+                OpenRouterConfig(
+                    api_key=self.api_key,
+                    model=self.model or DEFAULT_OPENROUTER_MODEL,
+                    base_url=self.base_url or DEFAULT_OPENROUTER_BASE_URL,
+                )
+            )
+            return client.complete_json
+        if self.kind == "openai":
+            client = OpenAIChatClient(
+                OpenAIConfig(
+                    api_key=self.api_key,
+                    model=self.model,
+                    base_url=self.base_url or "https://api.openai.com/v1",
+                )
+            )
+            return client.complete_json
+
+        client = FoundryChatClient(
+            FoundryConfig(
+                endpoint=self.endpoint,
+                model=self.model,
+                api_key=self.api_key or None,
+                bearer_token=self.bearer_token or None,
+            )
+        )
+        return client.complete_json
+
+
 class GuideState:
     def __init__(self) -> None:
         self.analysis = make_guided_demo()
+        self.provider = RuntimeProvider()
 
     def reset(self, mode: str = "guided") -> AnalysisRun:
         if mode == "rush":
@@ -270,7 +373,7 @@ class GuideState:
         self.analysis = verify_current_claim(
             self.analysis,
             claim_id,
-            deterministic_verifier,
+            self.provider.model_call(),
         )
         return self.analysis
 
@@ -283,7 +386,7 @@ class GuideState:
         self.analysis = run_rush_analysis(
             policy_run,
             response_run,
-            deterministic_verifier,
+            self.provider.model_call(),
         )
         return self.analysis
 
@@ -310,9 +413,7 @@ class GuideState:
             if not replacement.claims:
                 raise ValueError("selected guide step has no claims")
             replacement.claims[0].text = replacement_text
-            replacement.claims[0].verification_status = (
-                VerificationStatus.NEEDS_HUMAN_REVIEW
-            )
+            replacement.claims[0].verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
             replacement.claims[0].verification_note = (
                 "Guide re-analysis changed this claim; re-verification is required."
             )
@@ -352,15 +453,13 @@ class GuideState:
                 self.analysis = verify_current_claim(
                     checked,
                     claim.id,
-                    deterministic_verifier,
+                    self.provider.model_call(),
                 )
                 step = next(item for item in self.analysis.steps if item.id == step_id)
 
         step.status = StepStatus.VERIFIED
         step.human_review.status = HumanReviewStatus.REVIEWED
-        self.analysis = AnalysisRun.model_validate(
-            self.analysis.model_dump(mode="python")
-        )
+        self.analysis = AnalysisRun.model_validate(self.analysis.model_dump(mode="python"))
         return self.analysis
 
     def brief(self) -> AnalysisRun:
@@ -378,7 +477,7 @@ def _json_bytes(payload: Any) -> bytes:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "PolicyTraceFullStackGuide/1.0"
+    server_version = "PolicyTraceFullStackGuide/1.1"
 
     def _send(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -421,11 +520,22 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/analysis":
             self._send_json(200, STATE.analysis)
             return
+        if self.path == "/api/provider":
+            self._send_json(200, STATE.provider.status())
+            return
         self._send_json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
         try:
             body = self._body_json()
+            if self.path == "/api/provider":
+                self._send_json(200, STATE.provider.configure(body))
+                return
+            if self.path == "/api/provider/clear":
+                STATE.provider.clear()
+                self._send_json(200, STATE.provider.status())
+                return
+
             if self.path == "/api/reset":
                 result = STATE.reset(str(body.get("mode", "guided")))
             elif self.path == "/api/guided/begin":
@@ -472,6 +582,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, result)
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(400, {"error": str(exc)})
+        except RuntimeError as exc:
+            self._send_json(502, {"error": str(exc)})
 
     def log_message(self, format: str, *args: Any) -> None:
         print(f"[FULL STACK GUIDE] {self.address_string()} - {format % args}")
@@ -491,6 +603,7 @@ def main() -> None:
     print("==============================")
     print(f"Open http://{HOST}:{PORT}/")
     print("Guide app only. Does not modify the human frontend.")
+    print("Provider credentials entered in the browser stay in this Python process only.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
