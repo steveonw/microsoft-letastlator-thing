@@ -1,9 +1,5 @@
-<<<<<<< HEAD
-const SAMPLE_PATH = "../../shared/sample-analysis.json";
-const STORAGE_KEY = "policytrace-guided-demo";
-=======
 const ANALYSIS_PATH = "/api/analysis";
->>>>>>> fb898af (Adding Fast API initializer)
+const STORAGE_KEY = "policytrace-guided-demo";
 
 const state = {
   analysis: null,
@@ -342,22 +338,27 @@ function render() {
 
 async function loadAnalysis() {
   try {
-<<<<<<< HEAD
-    const response = await fetch(SAMPLE_PATH);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const fresh = await response.json();
-
-    const saved = localStorage.getItem(STORAGE_KEY);
-    state.analysis = saved ? JSON.parse(saved) : fresh;
-    if (state.analysis.mode !== "guided") state.analysis.mode = "guided";
-    state.analysis.current_step_id ??= firstUnreviewedStepId();
-    ensureCurrentReview();
-=======
     const response = await fetch(ANALYSIS_PATH);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
->>>>>>> fb898af (Adding Fast API initializer)
+    const fresh = await response.json();
+
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        state.analysis = parsed.id === fresh.id ? parsed : fresh;
+      } catch {
+        state.analysis = fresh;
+      }
+    } else {
+      state.analysis = fresh;
+    }
+
+    if (state.analysis.mode !== "guided") state.analysis.mode = "guided";
+    state.analysis.current_step_id ??= firstUnreviewedStepId();
+    ensureCurrentReview();
 
     state.selectedStepId =
       state.analysis.current_step_id ?? state.analysis.steps[0]?.id ?? null;
@@ -378,16 +379,10 @@ async function loadAnalysis() {
   } catch (error) {
     document.body.innerHTML = `
       <div class="error">
-<<<<<<< HEAD
-        <strong>Could not load the sample analysis.</strong>
-        <p>Run this demo through a local web server from the repository root.</p>
-        <code>python -m http.server 8000</code>
-=======
         <strong>Could not load the analysis.</strong>
         <p>Start the FastAPI server from the repository root:</p>
         <code>python -m uvicorn api:app --app-dir backend --reload</code>
         <p>Then open <code>http://127.0.0.1:8000/demo/</code>.</p>
->>>>>>> fb898af (Adding Fast API initializer)
         <small>${String(error)}</small>
       </div>
     `;
