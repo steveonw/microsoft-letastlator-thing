@@ -8,6 +8,7 @@
  */
 
 const API = "";
+const CLIENT_ERROR_KEY = "policytrace-client-errors";
 
 let run = null;
 let selectedStepId = null;
@@ -36,13 +37,50 @@ const WORDING = {
 
 const say = (value) => WORDING[value] ?? String(value ?? "").replace(/_/g, " ");
 
+function rememberClientError(message) {
+  const errorId =
+    `CLIENT-${Date.now().toString(36).toUpperCase()}-` +
+    Math.random().toString(36).slice(2, 8).toUpperCase();
+  const entry = {
+    error_id: errorId,
+    timestamp: new Date().toISOString(),
+    message,
+  };
+
+  try {
+    const existing = JSON.parse(localStorage.getItem(CLIENT_ERROR_KEY) || "[]");
+    const items = Array.isArray(existing) ? existing : [];
+    items.push(entry);
+    localStorage.setItem(CLIENT_ERROR_KEY, JSON.stringify(items.slice(-50)));
+  } catch (_error) {
+    // Error tracking must never create a second user-facing error.
+  }
+  return errorId;
+}
+
+function recentClientErrors() {
+  try {
+    const value = JSON.parse(localStorage.getItem(CLIENT_ERROR_KEY) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
 function banner(message, kind = "info") {
   const el = byId("banner");
   if (!message) {
     el.hidden = true;
     return;
   }
-  el.textContent = message;
+
+  let shown = message;
+  if (kind === "refused" && !shown.includes("Error ID:")) {
+    const errorId = rememberClientError(shown);
+    shown = `${shown} Error ID: ${errorId}`;
+  }
+
+  el.textContent = shown;
   el.className = `banner ${kind}`;
   el.hidden = false;
 }
@@ -56,7 +94,11 @@ async function api(path, payload) {
     });
     const data = await response.json();
     if (!response.ok || data.error) {
-      banner(data.error || `Request failed (${response.status})`, "refused");
+      const errorId = data.error_id ? ` Error ID: ${data.error_id}` : "";
+      banner(
+        `${data.error || `Request failed (${response.status})`}${errorId}`,
+        "refused"
+      );
       return null;
     }
     banner("");
@@ -767,6 +809,45 @@ async function loadComments() {
   }
 }
 
+async function showRecentErrors() {
+  let serverErrors = [];
+  let logFile = ".policytrace/errors.jsonl";
+
+  try {
+    const response = await fetch(`${API}/api/errors`);
+    const data = await response.json();
+    if (response.ok) {
+      serverErrors = Array.isArray(data.errors) ? data.errors : [];
+      logFile = data.log_file || logFile;
+    }
+  } catch (_error) {
+    // The local browser log below is still useful when the server is down.
+  }
+
+  const combined = [
+    ...serverErrors.map((entry) => ({ ...entry, source: "server" })),
+    ...recentClientErrors().map((entry) => ({ ...entry, source: "browser" })),
+  ]
+    .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
+    .slice(0, 50);
+
+  const lines = combined.length
+    ? combined.map((entry) => {
+        const route = entry.path ? ` ${entry.method || ""} ${entry.path}` : "";
+        const status = entry.status ? ` [${entry.status}]` : "";
+        return (
+          `${entry.timestamp || ""}  ${entry.error_id || "unknown"}${status}${route}\n` +
+          `${entry.message || ""}`
+        );
+      })
+    : ["No errors have been recorded yet."];
+
+  byId("error-log-text").textContent = lines.join("\n\n");
+  byId("error-log-file").textContent =
+    `Server log: ${logFile} · Browser-only errors are kept in this Opera profile.`;
+  byId("error-dialog").showModal();
+}
+
 async function start(mode) {
   const reset = await api("/api/reset", { mode });
   if (!reset) return;
@@ -800,6 +881,10 @@ function boot() {
   syncProviderFields();
   byId("load-policy").addEventListener("click", loadPolicy);
   byId("load-comments").addEventListener("click", loadComments);
+  byId("recent-errors").addEventListener("click", showRecentErrors);
+  byId("close-errors").addEventListener("click", () => {
+    byId("error-dialog").close();
+  });
 
   byId("restart").addEventListener("click", () => {
     run = null;

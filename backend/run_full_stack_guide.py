@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 from federal_register import NormalizedPolicyDocument, fetch_and_normalize
 from foundry_client import FoundryChatClient, FoundryConfig
@@ -62,6 +64,8 @@ ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "guide" / "full-stack"
 HOST = "127.0.0.1"
 PORT = 8777
+ERROR_LOG_PATH = ROOT / ".policytrace" / "errors.jsonl"
+_ERROR_LOG_LOCK = threading.Lock()
 
 POLICY_TEXT = (
     "Section 1 requires covered providers to maintain an annual compliance record. "
@@ -754,6 +758,77 @@ class GuideState:
 STATE = GuideState()
 
 
+def _safe_error_message(message: object) -> str:
+    safe = str(message)
+    secrets = (
+        STATE.provider.api_key,
+        STATE.provider.bearer_token,
+        STATE.provider.regulations_api_key,
+    )
+    for secret in secrets:
+        if secret:
+            safe = safe.replace(secret, "[REDACTED]")
+    return safe[:4000]
+
+
+def _record_error(
+    *,
+    method: str,
+    path: str,
+    status: int,
+    message: object,
+    error_type: str,
+) -> tuple[str, str]:
+    now = datetime.now(timezone.utc)
+    error_id = (
+        f"ERR-{now.strftime('%Y%m%d-%H%M%S')}-"
+        f"{uuid4().hex[:8].upper()}"
+    )
+    safe_message = _safe_error_message(message)
+    entry = {
+        "error_id": error_id,
+        "timestamp": now.isoformat(),
+        "method": method,
+        "path": path.split("?", 1)[0],
+        "status": status,
+        "error_type": error_type,
+        "message": safe_message,
+        "mode": STATE.analysis.mode.value,
+        "current_step_id": STATE.analysis.current_step_id,
+        "provider_kind": STATE.provider.kind,
+    }
+
+    ERROR_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with _ERROR_LOG_LOCK:
+        with ERROR_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    print(
+        f"[POLICYTRACE ERROR {error_id}] "
+        f"{method} {entry['path']} -> {status}: {safe_message}"
+    )
+    return error_id, safe_message
+
+
+def _recent_errors(limit: int = 50) -> list[dict[str, Any]]:
+    limit = max(1, min(int(limit), 100))
+    if not ERROR_LOG_PATH.exists():
+        return []
+
+    with _ERROR_LOG_LOCK:
+        lines = ERROR_LOG_PATH.read_text(encoding="utf-8").splitlines()
+
+    entries: list[dict[str, Any]] = []
+    for line in lines[-limit:]:
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            entries.append(value)
+    return entries
+
+
 def _json_bytes(payload: Any) -> bytes:
     if isinstance(payload, AnalysisRun):
         payload = payload.model_dump(mode="json")
@@ -774,6 +849,29 @@ class Handler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, payload: Any) -> None:
         self._send(status, _json_bytes(payload), "application/json; charset=utf-8")
 
+    def _send_error(
+        self,
+        status: int,
+        message: object,
+        *,
+        error_type: str,
+        public_message: str | None = None,
+    ) -> None:
+        error_id, safe_message = _record_error(
+            method=self.command,
+            path=self.path,
+            status=status,
+            message=message,
+            error_type=error_type,
+        )
+        self._send_json(
+            status,
+            {
+                "error": public_message or safe_message,
+                "error_id": error_id,
+            },
+        )
+
     def _body_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
         if length <= 0:
@@ -787,7 +885,12 @@ class Handler(BaseHTTPRequestHandler):
     def _static(self, filename: str, content_type: str) -> None:
         path = APP_DIR / filename
         if not path.exists():
-            self._send_json(404, {"error": "not found"})
+            self._send_error(
+                404,
+                f"static file not found: {filename}",
+                error_type="NotFound",
+                public_message="not found",
+            )
             return
         self._send(200, path.read_bytes(), content_type)
 
@@ -810,7 +913,21 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/provider":
             self._send_json(200, STATE.provider.status())
             return
-        self._send_json(404, {"error": "not found"})
+        if self.path == "/api/errors":
+            self._send_json(
+                200,
+                {
+                    "errors": _recent_errors(),
+                    "log_file": str(ERROR_LOG_PATH.relative_to(ROOT)),
+                },
+            )
+            return
+        self._send_error(
+            404,
+            f"unknown route: {self.path}",
+            error_type="NotFound",
+            public_message="not found",
+        )
 
     def do_POST(self) -> None:
         try:
@@ -887,13 +1004,33 @@ class Handler(BaseHTTPRequestHandler):
                     acknowledge_flags=bool(body.get("acknowledge_flags", False))
                 )
             else:
-                self._send_json(404, {"error": "not found"})
+                self._send_error(
+                    404,
+                    f"unknown route: {self.path}",
+                    error_type="NotFound",
+                    public_message="not found",
+                )
                 return
             self._send_json(200, result)
         except (ValueError, json.JSONDecodeError) as exc:
-            self._send_json(400, {"error": str(exc)})
+            self._send_error(
+                400,
+                exc,
+                error_type=type(exc).__name__,
+            )
         except RuntimeError as exc:
-            self._send_json(502, {"error": str(exc)})
+            self._send_error(
+                502,
+                exc,
+                error_type=type(exc).__name__,
+            )
+        except Exception as exc:
+            self._send_error(
+                500,
+                exc,
+                error_type=type(exc).__name__,
+                public_message="Unexpected server error.",
+            )
 
     def log_message(self, format: str, *args: Any) -> None:
         print(f"[FULL STACK GUIDE] {self.address_string()} - {format % args}")

@@ -9,8 +9,13 @@ have caught any of them.
 
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
+import run_full_stack_guide as full_stack
 from models import AnalysisMode, HumanReviewStatus, StepStatus
 from run_full_stack_guide import GuideState
 
@@ -454,3 +459,59 @@ class ReviewerFlagGateTests(unittest.TestCase):
                 for note in updated.human_review.notes
             )
         )
+
+
+class ErrorLogTests(unittest.TestCase):
+    def test_error_log_persists_safe_metadata_and_redacts_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "errors.jsonl"
+            with (
+                patch.object(full_stack, "ERROR_LOG_PATH", path),
+                patch.object(
+                    full_stack.STATE.provider,
+                    "api_key",
+                    "super-secret-api-key",
+                ),
+            ):
+                error_id, safe = full_stack._record_error(
+                    method="POST",
+                    path="/api/provider",
+                    status=400,
+                    message="provider rejected super-secret-api-key",
+                    error_type="ValueError",
+                )
+                recent = full_stack._recent_errors()
+
+            self.assertTrue(error_id.startswith("ERR-"))
+            self.assertNotIn("super-secret-api-key", safe)
+            self.assertEqual(len(recent), 1)
+            self.assertEqual(recent[0]["error_id"], error_id)
+            self.assertEqual(recent[0]["path"], "/api/provider")
+            self.assertEqual(recent[0]["status"], 400)
+            self.assertNotIn("super-secret-api-key", json.dumps(recent))
+            self.assertNotIn("request_body", recent[0])
+
+    def test_recent_errors_survive_multiple_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "errors.jsonl"
+            with patch.object(full_stack, "ERROR_LOG_PATH", path):
+                first, _ = full_stack._record_error(
+                    method="POST",
+                    path="/api/one",
+                    status=400,
+                    message="first",
+                    error_type="ValueError",
+                )
+                second, _ = full_stack._record_error(
+                    method="POST",
+                    path="/api/two",
+                    status=502,
+                    message="second",
+                    error_type="RuntimeError",
+                )
+                recent = full_stack._recent_errors(limit=2)
+
+            self.assertEqual(
+                [entry["error_id"] for entry in recent],
+                [first, second],
+            )

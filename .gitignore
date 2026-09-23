@@ -21,3 +21,6 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Local PolicyTrace runtime logs
+.policytrace/

@@ -11,15 +11,25 @@
     <div class="brand">
       <span class="mark">PolicyTrace</span>
       <span class="tagline">Every finding traced to the source text</span>
-      <span id="build-marker" class="build-marker">build 4</span>
+      <span id="build-marker" class="build-marker">build 5</span>
     </div>
     <div class="topbar-right">
       <span id="mode-pill" class="pill">not started</span>
+      <button id="recent-errors" type="button" class="ghost">Recent errors</button>
       <button id="restart" type="button" class="ghost">Start over</button>
     </div>
   </header>
 
   <div id="banner" class="banner" hidden></div>
+
+  <dialog id="error-dialog" class="error-dialog">
+    <div class="col-head">
+      <h2>Recent errors</h2>
+      <button id="close-errors" type="button" class="ghost">Close</button>
+    </div>
+    <p id="error-log-file" class="muted small"></p>
+    <pre id="error-log-text"></pre>
+  </dialog>
 
   <main id="stage">
     <section id="start-screen" class="start">
