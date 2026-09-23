@@ -15,6 +15,7 @@ from models import (
     HumanReview,
     HumanReviewStatus,
     InformationType,
+    PiiRedactionStatus,
     Policy,
     StepKind,
     StepStatus,
@@ -179,8 +180,15 @@ def build_analysis_from_interpreter_output(
     output: PolicyInterpreterOutput,
     *,
     mode: AnalysisMode = AnalysisMode.GUIDED,
+    source_information_type: InformationType = InformationType.OFFICIAL_POLICY,
+    source_url: str | None = None,
 ) -> AnalysisRun:
     source = source_from_federal_register(document)
+    source.information_type = source_information_type
+    if source_information_type != InformationType.OFFICIAL_POLICY:
+        source.url = source_url
+        source.version = None
+        source.pii_redaction_status = PiiRedactionStatus.NOT_CHECKED
 
     evidence_by_id = {}
 
@@ -272,8 +280,16 @@ def build_analysis_from_interpreter_output(
         policy=Policy(
             id=f"policy-fr-{document.document_number}",
             title=document.title,
-            jurisdiction="United States / federal",
-            version=document.document_number,
+            jurisdiction=(
+                "United States / federal"
+                if source_information_type == InformationType.OFFICIAL_POLICY
+                else "Not specified"
+            ),
+            version=(
+                document.document_number
+                if source_information_type == InformationType.OFFICIAL_POLICY
+                else None
+            ),
             source_ids=[source.id],
         ),
         sources=[source],
@@ -289,6 +305,8 @@ def run_policy_interpreter(
     model_call: Callable[[str, str], str],
     *,
     mode: AnalysisMode = AnalysisMode.GUIDED,
+    source_information_type: InformationType = InformationType.OFFICIAL_POLICY,
+    source_url: str | None = None,
 ) -> AnalysisRun:
     raw = model_call(
         POLICY_INTERPRETER_SYSTEM_PROMPT,
@@ -299,4 +317,6 @@ def run_policy_interpreter(
         document,
         output,
         mode=mode,
+        source_information_type=source_information_type,
+        source_url=source_url,
     )
