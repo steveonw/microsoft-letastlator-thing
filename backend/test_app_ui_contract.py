@@ -365,3 +365,92 @@ class RushStartAndFlagFeedbackTests(unittest.TestCase):
         self.assertTrue(
             any("Reviewer found a problem" in note for note in updated.human_review.notes)
         )
+
+
+class ReviewerFlagGateTests(unittest.TestCase):
+    def _review_all_guided(self, state: GuideState) -> None:
+        state.guided_begin(None)
+        while state.analysis.current_step_id is not None:
+            state.guided_next()
+
+    def test_flag_requires_a_reason(self) -> None:
+        state = GuideState()
+        state.reset("guided")
+        begun = state.guided_begin(None)
+        claim_id = begun.steps[0].claims[0].id
+
+        with self.assertRaisesRegex(ValueError, "flag reason"):
+            state.guided_flag(claim_id, "   ")
+
+    def test_guided_edit_resolves_existing_flag(self) -> None:
+        state = GuideState()
+        state.reset("guided")
+        begun = state.guided_begin(None)
+        claim_id = begun.steps[0].claims[0].id
+
+        state.guided_flag(claim_id, "The affected group is overstated.")
+        edited = state.guided_edit(claim_id, "Reviewer corrected the affected group.")
+
+        step = edited.steps[0]
+        self.assertNotIn(claim_id, step.human_review.flagged_claim_ids)
+        self.assertTrue(
+            any(
+                f"Resolved flag {claim_id}" in note
+                for note in step.human_review.notes
+            )
+        )
+
+    def test_flag_survives_section_review_and_enters_brief(self) -> None:
+        state = GuideState()
+        state.reset("guided")
+        begun = state.guided_begin(None)
+        claim_id = begun.steps[0].claims[0].id
+
+        state.guided_flag(
+            claim_id,
+            'The source says "covered", not "licensed".',
+        )
+        self._review_all_guided(state)
+        briefed = state.brief()
+        brief = next(step for step in briefed.steps if step.kind.value == "draft_brief")
+
+        self.assertIn(
+            'FLAGGED BY REVIEWER: The source says "covered", not "licensed".',
+            brief.ai_output,
+        )
+
+        with self.assertRaisesRegex(ValueError, "reviewer flags"):
+            state.approve_final_brief()
+
+        approved = state.approve_final_brief(acknowledge_flags=True)
+        self.assertEqual(approved.final_review_status, HumanReviewStatus.APPROVED)
+        flagged_step = approved.steps[0]
+        self.assertTrue(
+            any(
+                "acknowledged unresolved reviewer flag" in note
+                for note in flagged_step.human_review.notes
+            )
+        )
+
+    def test_rush_human_edit_resolves_flag(self) -> None:
+        state = GuideState()
+        rushed = state.reset("rush")
+        step = next(item for item in rushed.steps if item.claims)
+        state.rush_open(step.id)
+        claim_id = step.claims[0].id
+        state.guided_flag(claim_id, "Reviewer disputes this wording.")
+
+        edited = state.reanalyze(
+            step.id,
+            "Reviewer replacement wording.",
+            claim_id=claim_id,
+            human_edited=True,
+        )
+        updated = next(item for item in edited.steps if item.id == step.id)
+        self.assertNotIn(claim_id, updated.human_review.flagged_claim_ids)
+        self.assertTrue(
+            any(
+                f"Resolved flag {claim_id}" in note
+                for note in updated.human_review.notes
+            )
+        )

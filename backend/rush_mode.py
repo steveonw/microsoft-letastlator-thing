@@ -161,6 +161,7 @@ def approve_rush_final_review(
     analysis: AnalysisRun,
     *,
     acknowledge_unreviewed: bool = False,
+    acknowledge_flags: bool = False,
 ) -> AnalysisRun:
     """
     Explicit human approval gate. This is never called by run_rush_analysis.
@@ -191,6 +192,31 @@ def approve_rush_final_review(
         )
         for step in reviewed.steps:
             if step.id in set(outstanding):
+                step.human_review.notes.append(override)
+
+    unresolved_flags = [
+        (step, claim_id)
+        for step in reviewed.steps
+        for claim_id in step.human_review.flagged_claim_ids
+    ]
+    if unresolved_flags and not acknowledge_flags:
+        labels = [
+            f"{step.id}:{claim_id}"
+            for step, claim_id in unresolved_flags
+        ]
+        raise ValueError(
+            "cannot approve while reviewer flags are unresolved: "
+            f"{sorted(labels)}. Resolve them, or approve with "
+            "acknowledge_flags=True to record the override."
+        )
+
+    if unresolved_flags:
+        for step, claim_id in unresolved_flags:
+            override = (
+                f"Final approval acknowledged unresolved reviewer flag "
+                f"{claim_id} (acknowledged override)."
+            )
+            if override not in step.human_review.notes:
                 step.human_review.notes.append(override)
 
     reviewed.current_step_id = None

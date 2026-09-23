@@ -13,6 +13,7 @@ let run = null;
 let selectedStepId = null;
 let selectedClaimId = null;
 let editingClaimId = null;
+let flaggingClaimId = null;
 
 const byId = (id) => document.getElementById(id);
 
@@ -89,6 +90,24 @@ function allContentReviewed() {
 function stepDisplayStatus(step) {
   if (step.status === "needs_refresh") return step.status;
   return step.human_review?.status ?? step.status;
+}
+
+function flagReason(step, claimId) {
+  const prefix = `Flagged ${claimId}: `;
+  const notes = step?.human_review?.notes ?? [];
+  for (let index = notes.length - 1; index >= 0; index -= 1) {
+    if (notes[index].startsWith(prefix)) {
+      return notes[index].slice(prefix.length).trim();
+    }
+  }
+  return "";
+}
+
+function unresolvedFlagCount() {
+  return contentSteps().reduce(
+    (count, step) => count + (step.human_review?.flagged_claim_ids ?? []).length,
+    0
+  );
 }
 
 function claimsOf(step) {
@@ -170,6 +189,7 @@ function renderSections() {
       selectedStepId = step.id;
       selectedClaimId = null;
       editingClaimId = null;
+      flaggingClaimId = null;
       render();
     });
     list.append(button);
@@ -253,6 +273,10 @@ function renderClaimCard(claim, step) {
 
   card.append(top);
 
+  if (claim.id === flaggingClaimId) {
+    card.append(renderFlagEditor(claim));
+  }
+
   if (claim.id === editingClaimId) {
     card.append(renderEditor(claim));
   } else {
@@ -269,6 +293,14 @@ function renderClaimCard(claim, step) {
     card.append(was);
   }
 
+  if (flagged) {
+    const reviewerNote = document.createElement("p");
+    reviewerNote.className = "claim-note";
+    reviewerNote.textContent =
+      `Reviewer flag: ${flagReason(step, claim.id) || "Reason not recorded."}`;
+    card.append(reviewerNote);
+  }
+
   if (claim.verification_note) {
     const note = document.createElement("p");
     note.className = "claim-note";
@@ -283,6 +315,57 @@ function renderClaimCard(claim, step) {
   });
 
   return card;
+}
+
+function renderFlagEditor(claim) {
+  const wrap = document.createElement("div");
+  wrap.className = "editor";
+
+  const area = document.createElement("textarea");
+  area.rows = 3;
+  area.placeholder = "Explain what is wrong with this finding.";
+  area.addEventListener("click", (event) => event.stopPropagation());
+
+  const row = document.createElement("div");
+  row.className = "editor-actions";
+
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "primary";
+  save.textContent = "Save flag";
+  save.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    const note = area.value.trim();
+    if (!note) {
+      banner("Explain what is wrong before flagging this finding.", "refused");
+      return;
+    }
+    if (!(await ensureSectionOpen(currentStep()))) return;
+    const updated = await api("/api/guided/flag", {
+      claim_id: claim.id,
+      note,
+    });
+    if (updated) {
+      run = updated;
+      flaggingClaimId = null;
+      render();
+    }
+  });
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "ghost";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", (event) => {
+    event.stopPropagation();
+    flaggingClaimId = null;
+    render();
+  });
+
+  row.append(save, cancel);
+  wrap.append(area, row);
+  setTimeout(() => area.focus(), 0);
+  return wrap;
 }
 
 function renderEditor(claim) {
@@ -450,6 +533,7 @@ function renderActions() {
 
   if (claim) {
     add("Edit wording", () => {
+      flaggingClaimId = null;
       editingClaimId = claim.id;
       render();
     });
@@ -461,19 +545,13 @@ function renderActions() {
     });
 
     const alreadyFlagged = (step.human_review?.flagged_claim_ids ?? []).includes(claim.id);
-    add(alreadyFlagged ? "Flagged" : "Flag a problem", async () => {
+    const flagButton = add(alreadyFlagged ? "Flagged" : "Flag a problem", () => {
       if (alreadyFlagged) return;
-      const note = window.prompt(
-        "What is wrong with this finding? Add a short note, or leave it blank."
-      );
-      if (note === null) return;
-      if (!(await ensureSectionOpen(step))) return;
-      const updated = await api("/api/guided/flag", {
-        claim_id: claim.id,
-        note,
-      });
-      if (updated) { run = updated; render(); }
+      editingClaimId = null;
+      flaggingClaimId = claim.id;
+      render();
     });
+    flagButton.disabled = alreadyFlagged;
   }
 
   if (guided) {
@@ -525,6 +603,7 @@ function showBrief() {
 
   const notice = byId("brief-notice");
   const approve = byId("approve-brief");
+  const flagged = unresolvedFlagCount();
 
   if (run.final_review_status === "approved") {
     notice.textContent =
@@ -534,12 +613,19 @@ function showBrief() {
     approve.textContent = "Approved";
   } else {
     approve.disabled = false;
-    approve.textContent = "Approve final brief";
+    approve.textContent =
+      flagged > 0 ? "Approve with unresolved flags…" : "Approve final brief";
     if (skipped > 0) {
       notice.textContent =
         `This brief covers ${reviewed.length} of ${content.length} sections. ` +
         `${skipped} section${skipped === 1 ? " is" : "s are"} missing because ` +
         `you have not reviewed ${skipped === 1 ? "it" : "them"} yet.`;
+      notice.hidden = false;
+    } else if (flagged > 0) {
+      notice.textContent =
+        `This brief contains ${flagged} unresolved reviewer flag` +
+        `${flagged === 1 ? "" : "s"}. The flag text is included in the brief. ` +
+        "Final approval requires an explicit acknowledgement.";
       notice.hidden = false;
     } else {
       notice.hidden = true;
@@ -682,6 +768,7 @@ function boot() {
     selectedStepId = null;
     selectedClaimId = null;
     editingClaimId = null;
+    flaggingClaimId = null;
     byId("brief-screen").hidden = true;
     banner("");
     render();
@@ -695,7 +782,19 @@ function boot() {
   });
 
   byId("approve-brief").addEventListener("click", async () => {
-    const updated = await api("/api/final/approve", {});
+    const flagged = unresolvedFlagCount();
+    let acknowledgeFlags = false;
+    if (flagged > 0) {
+      acknowledgeFlags = window.confirm(
+        `There are ${flagged} unresolved reviewer flag` +
+          `${flagged === 1 ? "" : "s"}. Approve anyway and record that override?`
+      );
+      if (!acknowledgeFlags) return;
+    }
+
+    const updated = await api("/api/final/approve", {
+      acknowledge_flags: acknowledgeFlags,
+    });
     if (updated) {
       run = updated;
       showBrief();

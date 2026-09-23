@@ -120,6 +120,12 @@ def edit_current_claim(
     if claim.id not in step.human_review.edited_claim_ids:
         step.human_review.edited_claim_ids.append(claim.id)
 
+    if claim.id in step.human_review.flagged_claim_ids:
+        step.human_review.flagged_claim_ids.remove(claim.id)
+        step.human_review.notes.append(
+            f"Resolved flag {claim.id}: reviewer edited the wording."
+        )
+
     step.human_review.status = HumanReviewStatus.IN_REVIEW
     step.status = StepStatus.DRAFT
     step.version += 1
@@ -132,6 +138,10 @@ def flag_current_claim(
     claim_id: str,
     note: str | None = None,
 ) -> AnalysisRun:
+    reason = (note or "").strip()
+    if not reason:
+        raise ValueError("flag reason must not be empty")
+
     reviewed = _validated_copy(analysis)
     step = _current_step(reviewed)
     claim = _claim_in_current_step(reviewed, claim_id)
@@ -139,11 +149,7 @@ def flag_current_claim(
     if claim.id not in step.human_review.flagged_claim_ids:
         step.human_review.flagged_claim_ids.append(claim.id)
 
-    if note is not None and note.strip():
-        step.human_review.notes.append(
-            f"Flagged {claim.id}: {note.strip()}"
-        )
-
+    step.human_review.notes.append(f"Flagged {claim.id}: {reason}")
     step.human_review.status = HumanReviewStatus.IN_REVIEW
 
     return _validated_copy(reviewed)

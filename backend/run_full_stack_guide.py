@@ -553,10 +553,15 @@ class GuideState:
         self.analysis = return_to_rush_final_review(self.analysis)
         return self.analysis
 
-    def rush_approve(self, acknowledge_unreviewed: bool = False) -> AnalysisRun:
+    def rush_approve(
+        self,
+        acknowledge_unreviewed: bool = False,
+        acknowledge_flags: bool = False,
+    ) -> AnalysisRun:
         self.analysis = approve_rush_final_review(
             self.analysis,
             acknowledge_unreviewed=acknowledge_unreviewed,
+            acknowledge_flags=acknowledge_flags,
         )
         return self.analysis
 
@@ -665,7 +670,11 @@ class GuideState:
         self.analysis = build_final_brief(self.analysis)
         return self.analysis
 
-    def approve_final_brief(self) -> AnalysisRun:
+    def approve_final_brief(
+        self,
+        *,
+        acknowledge_flags: bool = False,
+    ) -> AnalysisRun:
         reviewed = AnalysisRun.model_validate(self.analysis.model_dump(mode="python"))
         if reviewed.final_review_status != HumanReviewStatus.IN_REVIEW:
             raise ValueError("final brief is not awaiting human approval")
@@ -704,6 +713,35 @@ class GuideState:
         )
         if brief is None:
             raise ValueError("build the final brief before approving it")
+
+        unresolved_flags = [
+            (step, claim_id)
+            for step in content_steps
+            for claim_id in step.human_review.flagged_claim_ids
+        ]
+        if unresolved_flags and not acknowledge_flags:
+            labels = [
+                f"{step.id}:{claim_id}"
+                for step, claim_id in unresolved_flags
+            ]
+            raise ValueError(
+                "cannot approve final brief while reviewer flags are unresolved: "
+                f"{sorted(labels)}. Resolve the finding or approve with "
+                "acknowledge_flags=True to record the override."
+            )
+
+        if unresolved_flags:
+            for step, claim_id in unresolved_flags:
+                override = (
+                    f"Final approval acknowledged unresolved reviewer flag "
+                    f"{claim_id} (acknowledged override)."
+                )
+                if override not in step.human_review.notes:
+                    step.human_review.notes.append(override)
+            brief.human_review.notes.append(
+                f"Final brief approved with {len(unresolved_flags)} unresolved "
+                "reviewer flag(s) (acknowledged override)."
+            )
 
         brief.status = StepStatus.VERIFIED
         brief.human_review.status = HumanReviewStatus.APPROVED
@@ -827,7 +865,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = STATE.rush_final()
             elif self.path == "/api/rush/approve":
                 result = STATE.rush_approve(
-                    bool(body.get("acknowledge_unreviewed", False))
+                    bool(body.get("acknowledge_unreviewed", False)),
+                    bool(body.get("acknowledge_flags", False)),
                 )
             elif self.path == "/api/reanalysis/step":
                 claim_id = str(body.get("claim_id", "")).strip() or None
@@ -844,7 +883,9 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/brief":
                 result = STATE.brief()
             elif self.path == "/api/final/approve":
-                result = STATE.approve_final_brief()
+                result = STATE.approve_final_brief(
+                    acknowledge_flags=bool(body.get("acknowledge_flags", False))
+                )
             else:
                 self._send_json(404, {"error": "not found"})
                 return

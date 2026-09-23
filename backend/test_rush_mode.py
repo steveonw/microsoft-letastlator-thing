@@ -310,5 +310,52 @@ class RushModeTests(unittest.TestCase):
         )
 
 
+    def test_flagged_rush_approval_requires_explicit_acknowledgement(self) -> None:
+        def model_call(system_prompt: str, user_prompt: str) -> str:
+            del system_prompt, user_prompt
+            return json.dumps(
+                {
+                    "status": "supported",
+                    "explanation": "Direct support.",
+                    "narrower_wording": None,
+                }
+            )
+
+        rushed = run_rush_analysis(
+            base_run(response=False),
+            base_run(response=True),
+            model_call,
+        )
+        reviewed = rushed.model_copy(deep=True)
+        for step in reviewed.steps:
+            step.human_review.status = HumanReviewStatus.REVIEWED
+
+        opened = open_rush_step_for_review(reviewed, "step-stakeholders")
+        flagged = flag_current_claim(
+            opened,
+            "claim-policy",
+            "Reviewer disputes the affected group.",
+        )
+        flagged.steps[0].human_review.status = HumanReviewStatus.REVIEWED
+
+        with self.assertRaisesRegex(ValueError, "reviewer flags"):
+            approve_rush_final_review(flagged)
+
+        approved = approve_rush_final_review(
+            flagged,
+            acknowledge_flags=True,
+        )
+        self.assertEqual(
+            approved.final_review_status,
+            HumanReviewStatus.APPROVED,
+        )
+        self.assertTrue(
+            any(
+                "acknowledged unresolved reviewer flag" in note
+                for note in approved.steps[0].human_review.notes
+            )
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

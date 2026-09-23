@@ -181,16 +181,31 @@ def _replace_step(
 
     replacement.version = original_version + 1
     replacement.status = StepStatus.DRAFT
+    replacement_claim_ids = {claim.id for claim in replacement.claims}
+    preserved_flags = [
+        claim_id
+        for claim_id in original.human_review.flagged_claim_ids
+        if claim_id in replacement_claim_ids
+    ]
     replacement.human_review = HumanReview(
         status=HumanReviewStatus.IN_REVIEW,
         notes=[
             *original.human_review.notes,
             f"Re-analysis generated from step version {original_version}.",
         ],
+        flagged_claim_ids=preserved_flags,
     )
     # After the fresh HumanReview is attached, or the edit trail is discarded
     # along with the old one.
     _record_human_edits(original, replacement, result.human_edited_claim_ids)
+
+    for claim_id in result.human_edited_claim_ids:
+        if claim_id in replacement.human_review.flagged_claim_ids:
+            replacement.human_review.flagged_claim_ids.remove(claim_id)
+            replacement.human_review.notes.append(
+                f"Resolved flag {claim_id}: reviewer edited the wording."
+            )
+
     analysis.steps[index] = replacement
 
 
@@ -277,6 +292,14 @@ def _brief_eligible_steps(analysis: AnalysisRun) -> list[AnalysisStep]:
     ]
 
 
+def _flag_reason(step: AnalysisStep, claim_id: str) -> str | None:
+    prefix = f"Flagged {claim_id}: "
+    for note in reversed(step.human_review.notes):
+        if note.startswith(prefix):
+            return note[len(prefix):].strip() or None
+    return None
+
+
 def _brief_text(analysis: AnalysisRun, steps: list[AnalysisStep]) -> str:
     lines = [
         f"Policy: {analysis.policy.title}",
@@ -315,6 +338,10 @@ def _brief_text(analysis: AnalysisRun, steps: list[AnalysisStep]) -> str:
             )
             if human_edited and claim.original_text:
                 lines.append(f"  Original AI wording: {claim.original_text}")
+
+            if claim.id in step.human_review.flagged_claim_ids:
+                reason = _flag_reason(step, claim.id) or "Reason not recorded."
+                lines.append(f"  FLAGGED BY REVIEWER: {reason}")
 
     return "\n".join(lines)
 
