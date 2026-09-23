@@ -152,6 +152,62 @@ class EvidenceLayerTests(unittest.TestCase):
         self.assertEqual(text[start:end], text)
         self.assertIn("OP/\ns", text[start:end])
 
+    def test_pdf_missing_spaces_can_match_long_unique_quote(self) -> None:
+        text = (
+            "BISshouldclarifytheintendedscopeofreportableinformationand"
+            "clearlyexplaintherationale."
+        )
+        query = (
+            "BIS should clarify the intended scope of reportable information and "
+            "clearly explain the rationale."
+        )
+
+        start, end = find_quote_span(text, query)
+
+        self.assertEqual(text[start:end], text)
+
+    def test_html_entities_and_tags_can_match_long_unique_quote(self) -> None:
+        text = (
+            "The commenter says transparency &amp; accountability <br/>"
+            "should remain central to the reporting framework."
+        )
+        query = (
+            "The commenter says transparency & accountability "
+            "should remain central to the reporting framework."
+        )
+
+        start, end = find_quote_span(text, query)
+
+        self.assertEqual(text[start:end], text)
+
+    def test_typographic_quotes_can_match_ascii_quote(self) -> None:
+        text = (
+            "The filing says “other information pertaining to safety” "
+            "should be clarified by BIS."
+        )
+        query = (
+            'The filing says "other information pertaining to safety" '
+            "should be clarified by BIS."
+        )
+
+        start, end = find_quote_span(text, query)
+
+        self.assertEqual(text[start:end], text)
+
+    def test_extraction_fallback_rejects_short_quote(self) -> None:
+        with self.assertRaises(ValueError):
+            find_quote_span("BISshouldclarify.", "BIS should clarify.")
+
+    def test_extraction_fallback_rejects_ambiguous_quote(self) -> None:
+        text = (
+            "BISshouldclarifytheintendedscopeofreportableinformation."
+            " BIS should clarify the intended scope of reportable information."
+        )
+        query = "BIS should clarify the intended scope of reportable information."
+
+        with self.assertRaises(ValueError):
+            find_quote_span(text, query)
+
     def test_hard_wrap_tolerance_does_not_accept_changed_punctuation(self) -> None:
         text = "The threshold is 10[supcaret]26 computational operations."
         with self.assertRaises(ValueError):
