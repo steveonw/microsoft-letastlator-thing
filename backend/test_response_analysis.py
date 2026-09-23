@@ -12,6 +12,7 @@ from response_sources import (
     _comment_record_from_detail,
     _download_attachment_bytes,
     _extract_attachment_payload,
+    fetch_comments_for_docket,
     extraction_is_degraded,
     _validate_attachment_url,
     duplicate_cluster_id,
@@ -247,6 +248,76 @@ class ResponseSourceTests(unittest.TestCase):
             source.pii_redaction_status,
             PiiRedactionStatus.NOT_DETECTED,
         )
+
+    def test_live_comments_use_bounded_parallel_detail_fetches_in_stable_order(self) -> None:
+        calls: list[tuple[str, int]] = []
+        captured: dict[str, object] = {}
+
+        class FakeExecutor:
+            def __init__(self, max_workers: int):
+                captured["max_workers"] = max_workers
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def map(self, fn, items):
+                ids = list(items)
+                captured["ids"] = ids
+                return [fn(item) for item in ids]
+
+        def fake_get_json(path, *, api_key, params=None, timeout=30):
+            del api_key, params
+            calls.append((path, timeout))
+            if path == "/documents":
+                return {
+                    "data": [
+                        {"attributes": {"objectId": "OBJ-1"}},
+                    ]
+                }
+            if path == "/comments":
+                return {
+                    "data": [
+                        {"id": "COMMENT-1"},
+                        {"id": "COMMENT-2"},
+                        {"id": "COMMENT-3"},
+                    ]
+                }
+            comment_id = path.rsplit("/", 1)[-1]
+            return {
+                "data": {
+                    "attributes": {
+                        "title": comment_id,
+                        "comment": f"Text for {comment_id}.",
+                        "postedDate": "2026-01-03T10:00:00Z",
+                    }
+                }
+            }
+
+        with (
+            patch("response_sources._get_json", side_effect=fake_get_json),
+            patch("response_sources._extract_attachment_texts", return_value=[]),
+            patch("response_sources.ThreadPoolExecutor", FakeExecutor),
+        ):
+            records = fetch_comments_for_docket(
+                "DEMO-DOCKET",
+                api_key="test-key",
+                max_comments=3,
+                timeout=11,
+            )
+
+        self.assertEqual(
+            [record.id for record in records],
+            ["COMMENT-1", "COMMENT-2", "COMMENT-3"],
+        )
+        self.assertEqual(captured["max_workers"], 3)
+        self.assertEqual(
+            captured["ids"],
+            ["COMMENT-1", "COMMENT-2", "COMMENT-3"],
+        )
+        self.assertIn(("/comments/COMMENT-1", 11), calls)
 
 
 class ResponseAnalystTests(unittest.TestCase):

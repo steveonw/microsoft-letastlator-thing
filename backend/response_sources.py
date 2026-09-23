@@ -7,6 +7,7 @@ import os
 import re
 import unicodedata
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from html.parser import HTMLParser
 from io import BytesIO
@@ -31,6 +32,7 @@ ATTACHMENT_USER_AGENT = (
 )
 MAX_ATTACHMENT_BYTES = 15_000_000
 MAX_ATTACHMENT_CHARS = 50_000
+COMMENT_FETCH_WORKERS = 4
 _ATTACHMENT_PLACEHOLDER_RE = re.compile(
     r"^\s*see\s+attached\s+file\(s\)[.]?\s*$",
     re.IGNORECASE,
@@ -449,6 +451,29 @@ def _comment_record_from_detail(
     )
 
 
+def _fetch_comment_record(
+    comment_id: str,
+    *,
+    api_key: str,
+    timeout: int,
+) -> ResponseRecord | None:
+    detail = _get_json(
+        f"/comments/{comment_id}",
+        api_key=api_key,
+        params={"include": "attachments"},
+        timeout=timeout,
+    )
+    attachment_texts = _extract_attachment_texts(
+        detail,
+        timeout=timeout,
+    )
+    return _comment_record_from_detail(
+        comment_id,
+        detail,
+        attachment_texts=attachment_texts,
+    )
+
+
 def fetch_comments_for_docket(
     docket_id: str,
     *,
@@ -518,8 +543,10 @@ def fetch_comments_for_docket(
         if not isinstance(rows, list):
             continue
 
+        candidate_ids: list[str] = []
+        batch_seen: set[str] = set()
         for row in rows:
-            if len(records) >= max_comments:
+            if len(candidate_ids) >= remaining:
                 break
             if not isinstance(row, dict):
                 continue
@@ -529,28 +556,34 @@ def fetch_comments_for_docket(
                 continue
 
             comment_id = str(comment_id)
-            if comment_id in seen_comment_ids:
+            if comment_id in seen_comment_ids or comment_id in batch_seen:
                 continue
 
-            detail = _get_json(
-                f"/comments/{comment_id}",
-                api_key=key,
-                params={"include": "attachments"},
-                timeout=timeout,
-            )
-            attachment_texts = _extract_attachment_texts(
-                detail,
-                timeout=timeout,
-            )
-            record = _comment_record_from_detail(
-                comment_id,
-                detail,
-                attachment_texts=attachment_texts,
-            )
-            if record is None:
-                continue
+            candidate_ids.append(comment_id)
+            batch_seen.add(comment_id)
 
-            records.append(record)
-            seen_comment_ids.add(comment_id)
+        if not candidate_ids:
+            continue
+
+        workers = min(COMMENT_FETCH_WORKERS, len(candidate_ids))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            fetched = executor.map(
+                lambda comment_id: _fetch_comment_record(
+                    comment_id,
+                    api_key=key,
+                    timeout=timeout,
+                ),
+                candidate_ids,
+            )
+
+            # executor.map preserves candidate order even when network requests
+            # finish out of order, so the analysis remains deterministic.
+            for comment_id, record in zip(candidate_ids, fetched):
+                if len(records) >= max_comments:
+                    break
+                if record is None:
+                    continue
+                records.append(record)
+                seen_comment_ids.add(comment_id)
 
     return records
