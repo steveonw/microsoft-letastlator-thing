@@ -13,6 +13,7 @@ from response_sources import (
     _extract_attachment_payload,
     _validate_attachment_url,
     duplicate_cluster_id,
+    is_attachment_placeholder,
     sanitize_public_text,
     source_from_response_record,
 )
@@ -229,6 +230,12 @@ class ResponseSourceTests(unittest.TestCase):
         self.assertNotIn("See attached file", record.text)
         self.assertIn("The attachment contains the actual comment.", record.text)
 
+    def test_attachment_placeholder_has_no_duplicate_cluster(self) -> None:
+        source = public_source("placeholder", "See attached file(s)")
+
+        self.assertTrue(is_attachment_placeholder(source.raw_text))
+        self.assertIsNone(source.duplicate_cluster_id)
+
     def test_source_keeps_response_type_and_duplicate_cluster(self) -> None:
         source = public_source("a", "A response statement.")
 
@@ -250,6 +257,17 @@ class ResponseAnalystTests(unittest.TestCase):
         self.assertIn("type=public_opinion", prompt)
         self.assertIn("A supplied response statement.", prompt)
         self.assertNotIn(POLICY_TEXT, prompt)
+
+    def test_prompt_excludes_unretrieved_attachment_placeholder(self) -> None:
+        placeholder = public_source("placeholder", "See attached file(s)")
+        substantive = public_source("real", "Substantive supplied response.")
+
+        prompt = build_response_viewpoint_prompt([placeholder, substantive])
+
+        self.assertNotIn("response-placeholder", prompt)
+        self.assertNotIn("See attached file(s)", prompt)
+        self.assertIn("response-real", prompt)
+        self.assertIn("Substantive supplied response.", prompt)
 
     def test_findings_become_evidence_linked_draft_claims(self) -> None:
         source_a = public_source(
@@ -428,6 +446,25 @@ class ResponseAnalystTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_response_analysis(policy_document(), [source], output)
 
+    def test_placeholder_records_are_reported_but_not_clustered_or_analyzed(self) -> None:
+        placeholder_a = public_source("p1", "See attached file(s)")
+        placeholder_b = public_source("p2", "See attached file(s).")
+        substantive = public_source("real", "A substantive response.")
+        analysis = build_response_analysis(
+            policy_document(),
+            [placeholder_a, placeholder_b, substantive],
+            ResponseViewpointOutput(),
+        )
+
+        note = analysis.steps[0].ai_output
+        self.assertIn("received 3 supplied source records", note)
+        self.assertIn("analyzed 1 records with retrieved content", note)
+        self.assertIn("across 1 unique exact-text clusters", note)
+        self.assertIn(
+            "Excluded 2 source record(s) from analysis and duplicate clustering",
+            note,
+        )
+
     def test_duplicate_records_do_not_inflate_unique_cluster_count(self) -> None:
         source_a = public_source("a", "Repeated exact text.")
         source_b = public_source("b", "Repeated exact text.")
@@ -438,7 +475,7 @@ class ResponseAnalystTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "analyzed 2 supplied source records across 1 unique exact-text clusters",
+            "received 2 supplied source records; analyzed 2 records with retrieved content across 1 unique exact-text clusters",
             analysis.steps[0].ai_output,
         )
 
