@@ -1,8 +1,9 @@
 import json
 import unittest
+from unittest.mock import patch
 
 from models import HumanReviewStatus, StepStatus
-from run_full_stack_guide import GuideState
+from run_full_stack_guide import GuideState, make_rush_inputs
 
 
 class FullStackGuideTests(unittest.TestCase):
@@ -31,6 +32,74 @@ class FullStackGuideTests(unittest.TestCase):
 
         state.provider.clear()
         self.assertFalse(state.provider.status()["has_api_key"])
+
+    def test_live_policy_load_becomes_authoritative_state(self) -> None:
+        state = GuideState()
+        state.provider.kind = "openrouter"
+        policy_run, _ = make_rush_inputs()
+        fake_document = object()
+
+        with (
+            patch(
+                "run_full_stack_guide.fetch_and_normalize",
+                return_value=fake_document,
+            ) as fetch,
+            patch(
+                "run_full_stack_guide.run_policy_interpreter",
+                return_value=policy_run,
+            ) as interpret,
+        ):
+            loaded = state.load_policy("2024-20529")
+
+        fetch.assert_called_once_with("2024-20529")
+        interpret.assert_called_once()
+        self.assertIs(state.document, fake_document)
+        self.assertEqual(state.policy_analysis.policy.id, policy_run.policy.id)
+        self.assertEqual(loaded.policy.id, policy_run.policy.id)
+        self.assertIsNone(loaded.current_step_id)
+
+    def test_live_comment_load_uses_memory_only_regulations_key(self) -> None:
+        state = GuideState()
+        state.provider.kind = "openrouter"
+        state.provider.regulations_api_key = "regulations-secret"
+        policy_run, response_run = make_rush_inputs()
+        state.document = object()
+        state.policy_analysis = policy_run
+
+        fake_record = object()
+        fake_source = response_run.sources[0]
+
+        with (
+            patch(
+                "run_full_stack_guide.fetch_comments_for_docket",
+                return_value=[fake_record],
+            ) as fetch_comments,
+            patch(
+                "run_full_stack_guide.source_from_response_record",
+                return_value=fake_source,
+            ),
+            patch(
+                "run_full_stack_guide.run_response_viewpoint_analyst",
+                return_value=response_run,
+            ),
+        ):
+            loaded = state.load_comments("BIS-2024-0047", max_comments=7)
+
+        fetch_comments.assert_called_once_with(
+            "BIS-2024-0047",
+            api_key="regulations-secret",
+            max_comments=7,
+        )
+        self.assertIs(state.response_analysis, response_run)
+        kinds = {step.kind.value for step in loaded.steps}
+        self.assertIn("policy_understanding", kinds)
+        self.assertIn("public_response", kinds)
+        self.assertNotIn("regulations-secret", loaded.model_dump_json())
+
+    def test_live_source_requires_real_model_provider(self) -> None:
+        state = GuideState()
+        with self.assertRaisesRegex(ValueError, "requires OpenRouter"):
+            state.load_policy("2024-20529")
 
     def test_guided_actions_use_authoritative_analysis_state(self) -> None:
         state = GuideState()
