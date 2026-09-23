@@ -5,6 +5,7 @@ import html
 import json
 import os
 import re
+import warnings
 from datetime import datetime
 from html.parser import HTMLParser
 from io import BytesIO
@@ -22,6 +23,11 @@ from models import InformationType, PiiRedactionStatus, Source
 
 REGULATIONS_GOV_BASE_URL = "https://api.regulations.gov/v4"
 DEFAULT_USER_AGENT = "PolicyTrace/0.1 (+https://github.com/steveonw/microsoft-letastlator-thing)"
+ATTACHMENT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0 Safari/537.36"
+)
 MAX_ATTACHMENT_BYTES = 15_000_000
 MAX_ATTACHMENT_CHARS = 50_000
 _ATTACHMENT_PLACEHOLDER_RE = re.compile(
@@ -225,7 +231,9 @@ def _download_attachment_bytes(
         file_url,
         headers={
             "Accept": "*/*",
-            "User-Agent": DEFAULT_USER_AGENT,
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.regulations.gov/",
+            "User-Agent": ATTACHMENT_USER_AGENT,
         },
     )
     with urlopen(request, timeout=timeout) as response:
@@ -308,7 +316,12 @@ def _extract_attachment_texts(
                     payload,
                     _attachment_format(candidate),
                 )
-            except Exception:
+            except Exception as exc:
+                warnings.warn(
+                    f"Skipping Regulations.gov attachment {file_url}: {exc}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 continue
 
             if text:
