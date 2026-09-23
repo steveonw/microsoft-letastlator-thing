@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NOT THE FROUTEND</title>
+  <style>
+    body { font-family: monospace; max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    h1 { border: 4px solid #000; padding: 12px; }
+    button { margin: 2px; padding: 6px 10px; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    th, td { border: 1px solid #999; padding: 8px; text-align: left; vertical-align: top; }
+    pre { white-space: pre-wrap; border: 1px solid #999; padding: 12px; background: #f5f5f5; }
+    .error { border: 2px solid #000; padding: 8px; margin: 12px 0; }
+    .needs_refresh { font-weight: bold; text-decoration: underline; }
+    .small { font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>NOT THE FROUTEND</h1>
+  <p><strong>This is NOT the real PolicyTrace frontend.</strong></p>
+  <p>
+    This is a no-frills Chunk 9 wiring harness. It exists only to prove that
+    selective re-analysis, dependency refresh, human review, and final brief
+    assembly can be driven through HTTP buttons.
+  </p>
+
+  <p>
+    <button id="reset">Reset demo</button>
+    <button id="brief">Build final brief</button>
+    <button id="reload">Reload state</button>
+  </p>
+
+  <div id="message"></div>
+
+  <h2>Run state</h2>
+  <div id="run-state"></div>
+
+  <h2>Steps</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Step</th>
+        <th>Version</th>
+        <th>Status</th>
+        <th>Human</th>
+        <th>Depends on</th>
+        <th>First claim</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="steps"></tbody>
+  </table>
+
+  <h2>Final brief</h2>
+  <pre id="brief-output">No brief yet.</pre>
+
+  <h2>What this page is proving</h2>
+  <pre>
+1. Change one step.
+2. Only transitive dependent steps become needs_refresh.
+3. Unrelated siblings stay untouched.
+4. Stale steps must refresh in dependency order.
+5. Human review is explicit.
+6. Final brief is blocked while stale work exists.
+7. Final brief copies reviewed claim text and trace IDs.
+8. This page is NOT THE FROUTEND.
+  </pre>
+
+<script>
+let analysis = null;
+
+function text(value) {
+  return value ?? "—";
+}
+
+function showMessage(message, isError = false) {
+  const box = document.getElementById("message");
+  box.className = isError ? "error" : "";
+  box.textContent = message || "";
+}
+
+async function request(path, options = {}) {
+  const response = await fetch(path, {
+    headers: {"Content-Type": "application/json"},
+    ...options,
+  });
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body.error || ("HTTP " + response.status));
+  }
+  analysis = body;
+  render();
+  return body;
+}
+
+async function load() {
+  try {
+    await request("/api/state");
+    showMessage("State loaded.");
+  } catch (error) {
+    showMessage(String(error), true);
+  }
+}
+
+function briefStep() {
+  return analysis?.steps?.find(step => step.kind === "draft_brief");
+}
+
+function render() {
+  if (!analysis) return;
+
+  document.getElementById("run-state").innerHTML = [
+    "<div><strong>Policy:</strong> " + text(analysis.policy?.title) + "</div>",
+    "<div><strong>Mode:</strong> " + text(analysis.mode) + "</div>",
+    "<div><strong>Current step:</strong> " + text(analysis.current_step_id) + "</div>",
+    "<div><strong>Final review:</strong> " + text(analysis.final_review_status) + "</div>",
+  ].join("");
+
+  const tbody = document.getElementById("steps");
+  tbody.replaceChildren();
+
+  for (const step of analysis.steps) {
+    if (step.kind === "draft_brief") continue;
+
+    const tr = document.createElement("tr");
+    if (step.status === "needs_refresh") tr.className = "needs_refresh";
+
+    const values = [
+      step.id + " — " + step.title,
+      step.version,
+      step.status,
+      step.human_review.status,
+      step.depends_on.length ? step.depends_on.join(", ") : "none",
+      step.claims?.[0]?.text ?? "no claim",
+    ];
+
+    for (const value of values) {
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.appendChild(td);
+    }
+
+    const actions = document.createElement("td");
+
+    const reanalyze = document.createElement("button");
+    reanalyze.textContent = "Re-analyze";
+    reanalyze.onclick = () => doReanalyze(step);
+
+    const refresh = document.createElement("button");
+    refresh.textContent = "Refresh";
+    refresh.disabled = step.status !== "needs_refresh";
+    refresh.onclick = () => doRefresh(step);
+
+    const review = document.createElement("button");
+    review.textContent = "Mark reviewed";
+    review.disabled = step.status === "needs_refresh";
+    review.onclick = () => doReview(step);
+
+    actions.append(reanalyze, refresh, review);
+    tr.appendChild(actions);
+    tbody.appendChild(tr);
+  }
+
+  const brief = briefStep();
+  document.getElementById("brief-output").textContent =
+    brief?.ai_output ?? "No brief yet.";
+}
+
+async function doReanalyze(step) {
+  const current = step.claims?.[0]?.text ?? "";
+  const replacement = prompt(
+    "Demo replacement text for the first claim in " + step.id + ":",
+    current,
+  );
+  if (!replacement || !replacement.trim()) return;
+
+  try {
+    await request("/api/reanalyze", {
+      method: "POST",
+      body: JSON.stringify({
+        step_id: step.id,
+        text: replacement.trim(),
+      }),
+    });
+    showMessage(
+      "Re-analyzed " + step.id +
+      ". Its dependent descendants should now show needs_refresh."
+    );
+  } catch (error) {
+    showMessage(String(error), true);
+  }
+}
+
+async function doRefresh(step) {
+  try {
+    await request("/api/refresh", {
+      method: "POST",
+      body: JSON.stringify({step_id: step.id}),
+    });
+    showMessage("Refreshed " + step.id + ".");
+  } catch (error) {
+    showMessage(String(error), true);
+  }
+}
+
+async function doReview(step) {
+  try {
+    await request("/api/review", {
+      method: "POST",
+      body: JSON.stringify({step_id: step.id}),
+    });
+    showMessage(
+      "Marked " + step.id +
+      " reviewed. Demo-only acceptance is not semantic verification."
+    );
+  } catch (error) {
+    showMessage(String(error), true);
+  }
+}
+
+document.getElementById("reset").onclick = async () => {
+  try {
+    await request("/api/reset", {
+      method: "POST",
+      body: "{}",
+    });
+    showMessage("Demo reset.");
+  } catch (error) {
+    showMessage(String(error), true);
+  }
+};
+
+document.getElementById("brief").onclick = async () => {
+  try {
+    await request("/api/brief", {
+      method: "POST",
+      body: "{}",
+    });
+    showMessage("Final brief assembled. It is still in human review.");
+  } catch (error) {
+    showMessage("Brief blocked: " + String(error), true);
+  }
+};
+
+document.getElementById("reload").onclick = load;
+
+load();
+</script>
+</body>
+</html>
