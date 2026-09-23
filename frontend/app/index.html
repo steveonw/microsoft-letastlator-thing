@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PolicyTrace</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark">PolicyTrace</span>
+      <span class="tagline">Every finding traced to the source text</span>
+    </div>
+    <div class="topbar-right">
+      <span id="mode-pill" class="pill">not started</span>
+      <button id="restart" type="button" class="ghost">Start over</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main id="stage">
+    <section id="start-screen" class="start">
+      <h1>How do you want to review this policy?</h1>
+      <p class="lede">
+        PolicyTrace reads the policy and public comments, writes findings, and
+        links every finding to the exact words in the source. You decide what
+        is accepted.
+      </p>
+      <div class="choices">
+        <button id="start-guided" type="button" class="choice">
+          <span class="choice-title">Review section by section</span>
+          <span class="choice-body">
+            Work through one section at a time. Nothing moves forward until you
+            say so. Best when the policy matters and you have time.
+          </span>
+        </button>
+        <button id="start-rush" type="button" class="choice">
+          <span class="choice-title">Analyze everything, then review</span>
+          <span class="choice-body">
+            Run the whole analysis up front and review it as a set. Faster, but
+            it still cannot finish without your approval.
+          </span>
+        </button>
+      </div>
+
+      <details class="sources">
+        <summary>Use a real policy and real public comments</summary>
+
+        <div class="field-group">
+          <h3>1. Where the AI runs</h3>
+          <p class="muted small">
+            Credentials stay in this server's memory and are never written to
+            disk or sent anywhere except the provider you name.
+          </p>
+          <div class="fields">
+            <label>Provider
+              <select id="provider-kind">
+                <option value="deterministic">Built-in sample (no AI, no key)</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="openai">OpenAI-compatible</option>
+                <option value="foundry">Microsoft Foundry</option>
+              </select>
+            </label>
+            <label data-for="openrouter openai foundry">Model
+              <input id="provider-model" type="text" placeholder="e.g. openai/gpt-4o-mini" />
+            </label>
+            <label data-for="foundry">Foundry endpoint
+              <input id="provider-endpoint" type="text"
+                     placeholder="https://your-resource.services.ai.azure.com/..." />
+            </label>
+            <label data-for="openrouter openai">Base URL (optional)
+              <input id="provider-base-url" type="text" placeholder="leave blank for the default" />
+            </label>
+            <label data-for="openrouter openai foundry">API key
+              <input id="provider-key" type="password" placeholder="kept in this server's memory" />
+            </label>
+            <label data-for="foundry">Bearer token
+              <input id="provider-bearer" type="password"
+                     placeholder="use this instead of an API key, not both" />
+            </label>
+            <label>Regulations.gov key
+              <input id="regs-key" type="password" placeholder="needed only for live comments" />
+            </label>
+          </div>
+          <p id="provider-help" class="muted small"></p>
+          <button id="save-provider" type="button">Save settings</button>
+          <span id="provider-state" class="muted small"></span>
+        </div>
+
+        <div class="field-group">
+          <h3>2. The policy</h3>
+          <div class="fields">
+            <label>Federal Register document number
+              <input id="doc-number" type="text" placeholder="2024-20529" value="2024-20529" />
+            </label>
+          </div>
+          <button id="load-policy" type="button">Load and analyze this policy</button>
+        </div>
+
+        <div class="field-group">
+          <h3>3. Public comments</h3>
+          <div class="fields">
+            <label>Regulations.gov docket
+              <input id="docket-id" type="text" placeholder="BIS-2024-0047" value="BIS-2024-0047" />
+            </label>
+            <label>How many comments
+              <input id="max-comments" type="number" min="1" max="100" value="12" />
+            </label>
+          </div>
+          <button id="load-comments" type="button">Load and analyze comments</button>
+          <p class="muted small">
+            Comments are redacted for personal information and grouped so
+            duplicate form letters are not counted as separate voices.
+          </p>
+        </div>
+      </details>
+    </section>
+
+    <section id="workspace" class="workspace" hidden>
+      <div class="policy-head">
+        <h1 id="policy-title">&nbsp;</h1>
+        <p id="policy-meta" class="muted"></p>
+      </div>
+
+      <div class="columns">
+        <aside class="col sections">
+          <h2>Sections</h2>
+          <div id="section-list"></div>
+        </aside>
+
+        <section class="col findings">
+          <div class="col-head">
+            <h2 id="section-title">Findings</h2>
+            <span id="section-status" class="pill"></span>
+          </div>
+          <p id="section-note" class="muted small"></p>
+          <div id="claim-list"></div>
+        </section>
+
+        <aside class="col evidence">
+          <h2>Where this comes from</h2>
+          <div id="evidence-list">
+            <p class="empty">Select a finding to see the source text it came from.</p>
+          </div>
+        </aside>
+      </div>
+
+      <footer class="actionbar">
+        <div class="actionbar-state">
+          <span class="label">Your review</span>
+          <strong id="review-state">not started</strong>
+        </div>
+        <div id="actions" class="actions"></div>
+      </footer>
+    </section>
+
+    <section id="brief-screen" class="brief" hidden>
+      <div class="col-head">
+        <h1>Final brief</h1>
+        <button id="back-to-work" type="button" class="ghost">Back to review</button>
+      </div>
+      <p class="muted">
+        Assembled only from findings you reviewed. Each line says whether the
+        wording is the model's or yours.
+      </p>
+      <p id="brief-notice" class="brief-notice" hidden></p>
+      <pre id="brief-text"></pre>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
