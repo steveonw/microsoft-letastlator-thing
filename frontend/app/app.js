@@ -132,7 +132,7 @@ function renderSections() {
   list.replaceChildren();
 
   steps()
-    .filter((step) => step.kind !== "draft_brief")
+    .filter((step) => !["verification", "draft_brief"].includes(step.kind))
     .forEach((step, index) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -233,6 +233,14 @@ function renderClaimCard(claim, step) {
     warn.className = "verdict no-evidence";
     warn.textContent = "no source found";
     top.append(warn);
+  }
+
+  const flagged = (step.human_review?.flagged_claim_ids ?? []).includes(claim.id);
+  if (flagged) {
+    const tag = document.createElement("span");
+    tag.className = "verdict needs_human_review";
+    tag.textContent = "flagged by you";
+    top.append(tag);
   }
 
   const edited = (step.human_review?.edited_claim_ids ?? []).includes(claim.id);
@@ -452,11 +460,17 @@ function renderActions() {
       if (updated) { run = updated; render(); }
     });
 
-    add("Flag a problem", async () => {
+    const alreadyFlagged = (step.human_review?.flagged_claim_ids ?? []).includes(claim.id);
+    add(alreadyFlagged ? "Flagged" : "Flag a problem", async () => {
+      if (alreadyFlagged) return;
+      const note = window.prompt(
+        "What is wrong with this finding? Add a short note, or leave it blank."
+      );
+      if (note === null) return;
       if (!(await ensureSectionOpen(step))) return;
       const updated = await api("/api/guided/flag", {
         claim_id: claim.id,
-        note: null,
+        note,
       });
       if (updated) { run = updated; render(); }
     });
@@ -513,7 +527,8 @@ function showBrief() {
   const approve = byId("approve-brief");
 
   if (run.final_review_status === "approved") {
-    notice.textContent = "Final brief approved by the human reviewer.";
+    notice.textContent =
+      "Analysis complete. You approved the final brief. You can copy the brief, go back to inspect the review, or choose Start over for another policy.";
     notice.hidden = false;
     approve.disabled = true;
     approve.textContent = "Approved";
@@ -632,11 +647,21 @@ async function start(mode) {
   const reset = await api("/api/reset", { mode });
   if (!reset) return;
 
-  const started = mode === "rush" ? reset : await api("/api/guided/begin", {});
+  let started;
+  if (mode === "rush") {
+    const first = (reset.steps ?? []).find(
+      (step) => !["verification", "draft_brief"].includes(step.kind)
+    );
+    started = first
+      ? await api("/api/rush/open", { step_id: first.id })
+      : reset;
+  } else {
+    started = await api("/api/guided/begin", {});
+  }
 
   if (started) {
     run = started;
-    selectedStepId = null;
+    selectedStepId = started.current_step_id ?? null;
     selectedClaimId = null;
     render();
   }
@@ -674,6 +699,16 @@ function boot() {
     if (updated) {
       run = updated;
       showBrief();
+    }
+  });
+
+  byId("copy-brief").addEventListener("click", async () => {
+    const text = byId("brief-text").textContent ?? "";
+    try {
+      await navigator.clipboard.writeText(text);
+      banner("Final brief copied to the clipboard.");
+    } catch (error) {
+      banner("Could not copy the brief automatically. Select the text and copy it manually.", "refused");
     }
   });
 

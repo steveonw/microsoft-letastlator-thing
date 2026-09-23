@@ -332,3 +332,36 @@ class FinalApprovalFlowTests(unittest.TestCase):
         with self.assertRaises(ValueError) as refused:
             state.approve_final_brief()
         self.assertIn("unreviewed", str(refused.exception))
+
+
+class RushStartAndFlagFeedbackTests(unittest.TestCase):
+    def test_rush_can_open_first_human_section_immediately(self) -> None:
+        state = GuideState()
+        rushed = state.reset("rush")
+        first = next(
+            step for step in rushed.steps
+            if step.kind.value not in {"verification", "draft_brief"}
+        )
+        opened = state.rush_open(first.id)
+        self.assertEqual(opened.mode, AnalysisMode.RUSH)
+        self.assertEqual(opened.current_step_id, first.id)
+        self.assertEqual(
+            next(step for step in opened.steps if step.id == first.id).human_review.status,
+            HumanReviewStatus.IN_REVIEW,
+        )
+
+    def test_flag_is_persisted_on_the_claim(self) -> None:
+        state = GuideState()
+        rushed = state.reset("rush")
+        first = next(
+            step for step in rushed.steps
+            if step.kind.value not in {"verification", "draft_brief"}
+        )
+        state.rush_open(first.id)
+        claim_id = first.claims[0].id
+        flagged = state.guided_flag(claim_id, "Reviewer found a problem")
+        updated = next(step for step in flagged.steps if step.id == first.id)
+        self.assertIn(claim_id, updated.human_review.flagged_claim_ids)
+        self.assertTrue(
+            any("Reviewer found a problem" in note for note in updated.human_review.notes)
+        )
