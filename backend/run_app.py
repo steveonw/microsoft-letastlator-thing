@@ -30,10 +30,26 @@ def main() -> None:
     if missing:
         raise SystemExit(f"missing app files: {', '.join(missing)}")
 
-    httpd = server.ThreadingHTTPServer((server.HOST, server.PORT), server.Handler)
+    try:
+        httpd = server.ThreadingHTTPServer((server.HOST, server.PORT), server.Handler)
+    except OSError as exc:
+        if exc.errno not in (48, 98, 10048):  # mac, linux, windows
+            raise
+        raise SystemExit(
+            f"\nSomething is already running on port {server.PORT}.\n\n"
+            "Your browser will be talking to THAT server, not this one, so any\n"
+            "changes you just made will not show up.\n\n"
+            "Stop the old one first:\n"
+            "  Windows (Git Bash):  taskkill //F //IM python.exe\n"
+            "  macOS / Linux:       pkill -f run_app.py; pkill -f run_full_stack_guide.py\n\n"
+            "Then run this again, and hard-refresh the browser with Ctrl+F5.\n"
+        ) from exc
+
     print("PolicyTrace")
     print("===========")
+    print(f"Serving the product UI from: {server.APP_DIR}")
     print(f"Open http://{server.HOST}:{server.PORT}/")
+    print("Check the build marker in the header after a hard refresh.")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

@@ -87,6 +87,33 @@ function allContentReviewed() {
   );
 }
 
+/*
+ * One line telling the reviewer what to do in this section. Without it the
+ * screen is a wall of status words with no next action, which reads as stuck.
+ */
+function sectionGuidance(step) {
+  if (step.status === "needs_refresh") {
+    return "You changed something this section depends on. Refresh it before reviewing.";
+  }
+
+  const reviewed = ["reviewed", "approved"].includes(step.human_review?.status);
+  if (reviewed) {
+    const remaining = contentSteps().filter(
+      (item) => !["reviewed", "approved"].includes(item.human_review?.status)
+    );
+    return remaining.length
+      ? `Reviewed. ${remaining.length} section${remaining.length === 1 ? "" : "s"} left: pick one on the left.`
+      : "Every section is reviewed. Build the final brief below.";
+  }
+
+  const flagged = (step.human_review?.flagged_claim_ids ?? []).length;
+  if (flagged) {
+    return `${flagged} finding${flagged === 1 ? " is" : "s are"} flagged. You can still mark this section reviewed; final approval will require the flag to be resolved or explicitly acknowledged.`;
+  }
+
+  return "Click a finding to see the source text behind it. When you are satisfied, mark the section reviewed.";
+}
+
 function stepDisplayStatus(step) {
   if (step.status === "needs_refresh") return step.status;
   return step.human_review?.status ?? step.status;
@@ -203,13 +230,11 @@ function renderFindings() {
 
   byId("section-title").textContent = step?.title ?? "Findings";
   const statusPill = byId("section-status");
-  statusPill.textContent = step ? say(step.status) : "";
-  statusPill.className = `pill ${step?.status ?? ""}`;
+  const display = step ? stepDisplayStatus(step) : "";
+  statusPill.textContent = step ? say(display) : "";
+  statusPill.className = `pill ${display}`;
 
-  byId("section-note").textContent =
-    step?.status === "needs_refresh"
-      ? "You changed something this section depends on. Refresh it before reviewing."
-      : "";
+  byId("section-note").textContent = step ? sectionGuidance(step) : "";
 
   if (!step) {
     const empty = document.createElement("p");
@@ -569,7 +594,20 @@ function renderActions() {
       const updated = await api("/api/reanalysis/review", { step_id: step.id });
       if (updated) {
         run = updated;
-        selectedStepId = step.id;
+        const next = contentSteps().find(
+          (item) =>
+            item.id !== step.id &&
+            !["reviewed", "approved"].includes(item.human_review?.status)
+        );
+        selectedClaimId = null;
+        editingClaimId = null;
+        flaggingClaimId = null;
+        if (next) {
+          selectedStepId = next.id;
+          await ensureSectionOpen(next);
+        } else {
+          selectedStepId = step.id;
+        }
         render();
       }
     }, "primary");

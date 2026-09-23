@@ -203,3 +203,14 @@ button.ghost { background: transparent; }
   font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
 }
 @media (max-width: 700px) { .fields { grid-template-columns: 1fr; } }
+
+
+.build-marker {
+  margin-left: 8px; font-size: 11px; color: var(--ink-soft);
+  border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px;
+}
+
+#section-note {
+  margin: 6px 0 12px; padding: 8px 12px; border-radius: 8px;
+  background: #f3f6fa; color: var(--ink-soft); font-size: 13px;
+}
