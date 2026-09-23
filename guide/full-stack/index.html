@@ -81,6 +81,46 @@
       </div>
     </section>
 
+    <section class="card settings">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Real source input</p>
+          <h2>Policy source</h2>
+        </div>
+      </div>
+      <p class="muted">
+        For live analysis, configure OpenRouter, OpenAI, or Foundry above. The Federal Register
+        document number is fetched and normalized by the existing PolicyTrace ingestion pipeline.
+        Regulations.gov comments are optional and require the Regulations.gov key above.
+      </p>
+
+      <div class="settings-grid">
+        <label>
+          Federal Register document number
+          <input id="document-number" value="2024-20529" placeholder="e.g. 2024-20529">
+        </label>
+
+        <label>
+          Regulations.gov docket ID
+          <input id="docket-id" value="BIS-2024-0047" placeholder="optional, e.g. BIS-2024-0047">
+        </label>
+
+        <label>
+          Maximum comments
+          <input id="max-comments" type="number" min="1" max="100" value="12">
+        </label>
+      </div>
+
+      <div class="row wrap">
+        <button id="load-policy" class="primary">Load + Analyze Policy</button>
+        <button id="load-comments">Load + Analyze Comments</button>
+      </div>
+      <p class="muted">
+        The fictional demo remains available through Reset Guided. Loading a real policy replaces
+        the authoritative in-memory AnalysisRun for this local session.
+      </p>
+    </section>
+
     <section class="card">
       <div class="section-head">
         <div>
