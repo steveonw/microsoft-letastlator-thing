@@ -210,6 +210,42 @@ class GuidedReviewTests(unittest.TestCase):
         self.assertIn("Suggested narrower wording:", claim.verification_note)
         self.assertEqual(verified.current_step_id, "step-one")
 
+    def test_verify_selected_claim_recovers_chatty_json(self) -> None:
+        analysis = begin_guided_review(demo_analysis())
+
+        def model_call(system_prompt: str, user_prompt: str) -> str:
+            del system_prompt, user_prompt
+            return (
+                "Sure! Here is the JSON:\n"
+                '{"status":"supported","explanation":"Direct support.",'
+                '"narrower_wording":null}'
+            )
+
+        verified = verify_current_claim(analysis, "claim-1", model_call)
+
+        self.assertEqual(
+            verified.steps[0].claims[0].verification_status,
+            VerificationStatus.SUPPORTED,
+        )
+        self.assertEqual(verified.current_step_id, "step-one")
+
+    def test_verify_selected_claim_routes_bad_reply_to_human_review(self) -> None:
+        analysis = begin_guided_review(demo_analysis())
+
+        def model_call(system_prompt: str, user_prompt: str) -> str:
+            del system_prompt, user_prompt
+            return "not json"
+
+        verified = verify_current_claim(analysis, "claim-1", model_call)
+        claim = verified.steps[0].claims[0]
+
+        self.assertEqual(
+            claim.verification_status,
+            VerificationStatus.NEEDS_HUMAN_REVIEW,
+        )
+        self.assertIn("unparseable or schema-invalid", claim.verification_note)
+        self.assertEqual(verified.current_step_id, "step-one")
+
     def test_only_next_advances_and_marks_current_reviewed(self) -> None:
         analysis = begin_guided_review(demo_analysis())
         clarified = clarify_current_step(analysis, "Keep proposed-rule wording.")
