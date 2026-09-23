@@ -7,6 +7,7 @@ from claim_verifier import (
     ClaimVerificationOutput,
     build_claim_verification_prompt,
     citation_integrity_problem,
+    parse_claim_verification,
 )
 from models import (
     AnalysisMode,
@@ -176,7 +177,19 @@ def verify_current_claim(
             CLAIM_VERIFIER_SYSTEM_PROMPT,
             build_claim_verification_prompt(reviewed, claim),
         )
-        result = ClaimVerificationOutput.model_validate_json(raw)
+        try:
+            result = parse_claim_verification(raw)
+        except Exception as exc:
+            claim.verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
+            detail = str(exc).splitlines()[0].strip()
+            claim.verification_note = (
+                "Semantic verification could not be completed because the verifier "
+                f"returned an unparseable or schema-invalid response: {detail}. "
+                "The claim remains for human review; no verification status was inferred."
+            )
+            step.human_review.status = HumanReviewStatus.IN_REVIEW
+            return _validated_copy(reviewed)
+
         claim.verification_status = result.status
         claim.verification_note = f"Semantic verification: {result.explanation}"
         if result.narrower_wording:
