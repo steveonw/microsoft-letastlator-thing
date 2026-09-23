@@ -177,6 +177,79 @@ if __name__ == "__main__":
     unittest.main()
 
 
+
+class CorpusLimitVisibilityTests(unittest.TestCase):
+    def test_product_ui_surfaces_corpus_limits_and_precise_duplicate_wording(self) -> None:
+        index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        html = index_path.read_text(encoding="utf-8")
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn('id="corpus-card"', html)
+        self.assertIn("Exact-text duplicate submissions are clustered", html)
+        self.assertNotIn("duplicate form letters are not counted as separate voices", html)
+        self.assertIn("/api/source/comments/status", source)
+        self.assertIn("exact_text_cluster_count", source)
+        self.assertIn("representativeness_warning", source)
+
+    def test_corpus_status_uses_exact_text_clusters_not_distinct_voices(self) -> None:
+        state = GuideState()
+        _, response_run = full_stack.make_rush_inputs()
+        source = response_run.sources[0].model_copy(deep=True)
+        source.duplicate_cluster_id = "exact-text-demo"
+        response_run.sources = [source]
+        state.response_analysis = response_run
+        state.last_comment_fetch_report = full_stack.CommentFetchReport(
+            docket_id="DEMO",
+            requested_count=3,
+            source_document_count=1,
+            observed_candidate_count=3,
+            attempted_count=3,
+            retrieved_count=1,
+        )
+
+        status = state.comment_corpus_status()
+
+        self.assertTrue(status["available"])
+        self.assertEqual(status["requested_count"], 3)
+        self.assertEqual(status["retrieved_count"], 1)
+        self.assertEqual(status["analyzed_source_count"], 1)
+        self.assertEqual(status["exact_text_cluster_count"], 1)
+        self.assertIn("not a representative sample", status["representativeness_warning"])
+
+    def test_final_brief_includes_corpus_limits_when_comments_are_present(self) -> None:
+        state = GuideState()
+        policy_run, response_run = full_stack.make_rush_inputs()
+        state.policy_analysis = policy_run
+        state.response_analysis = response_run
+        state.analysis = full_stack._guided_combined(policy_run, response_run)
+        state.last_comment_fetch_report = full_stack.CommentFetchReport(
+            docket_id="DEMO",
+            requested_count=2,
+            source_document_count=1,
+            observed_candidate_count=2,
+            attempted_count=2,
+            retrieved_count=1,
+            failures=[
+                full_stack.CommentFetchFailure(
+                    comment_id="COMMENT-2",
+                    error_type="TimeoutError",
+                )
+            ],
+        )
+
+        state.guided_begin(None)
+        while state.analysis.current_step_id is not None:
+            state.guided_next()
+
+        briefed = state.brief()
+        brief = next(step for step in briefed.steps if step.kind.value == "draft_brief")
+
+        self.assertIn("## Corpus limits", brief.ai_output)
+        self.assertIn("Retrieval failures: 1", brief.ai_output)
+        self.assertIn("Exact-text clusters:", brief.ai_output)
+        self.assertIn("not a representative sample", brief.ai_output)
+
 class ProviderConfigurationTests(unittest.TestCase):
     """
     Foundry is the contest-required path and has the strictest contract:
