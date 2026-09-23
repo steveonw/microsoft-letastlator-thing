@@ -237,3 +237,36 @@ class EvidenceLayerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TypographicToleranceTests(unittest.TestCase):
+    """
+    Live sources and model output disagree about typography, not wording.
+    Federal Register text uses TeX-style ``quotes'', PDF extraction yields
+    curly quotes and en dashes, and a model quoting either writes ASCII.
+    """
+
+    def test_ascii_quotes_match_curly_quotes(self) -> None:
+        source = 'The rule defines \u201ccovered provider\u201d in section two.'
+        start, end = find_quote_span(source, '"covered provider"')
+        self.assertEqual(source[start:end], "\u201ccovered provider\u201d")
+
+    def test_ascii_quotes_match_tex_pairs(self) -> None:
+        source = "the term ``covered person'' means any entity"
+        start, end = find_quote_span(source, '"covered person" means')
+        self.assertEqual(source[start:end], "``covered person'' means")
+
+    def test_ascii_apostrophe_matches_curly(self) -> None:
+        source = "the agency\u2019s estimate of burden"
+        start, end = find_quote_span(source, "the agency's estimate")
+        self.assertEqual(source[start:end], "the agency\u2019s estimate")
+
+    def test_hyphen_matches_en_dash(self) -> None:
+        source = "a dual\u2013use foundation model"
+        start, end = find_quote_span(source, "dual-use foundation model")
+        self.assertEqual(source[start:end], "dual\u2013use foundation model")
+
+    def test_wording_differences_still_fail(self) -> None:
+        source = "The rule applies to covered providers."
+        with self.assertRaises(ValueError):
+            find_quote_span(source, "The rule applies to licensed providers.")

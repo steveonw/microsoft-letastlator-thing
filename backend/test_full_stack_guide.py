@@ -142,7 +142,12 @@ class FullStackGuideTests(unittest.TestCase):
             HumanReviewStatus.IN_REVIEW,
         )
 
-        approved = state.rush_approve()
+        # Approving untouched AI output is refused; the override is explicit
+        # and recorded.
+        with self.assertRaises(ValueError):
+            state.rush_approve()
+
+        approved = state.rush_approve(acknowledge_unreviewed=True)
         self.assertEqual(
             approved.final_review_status,
             HumanReviewStatus.APPROVED,

@@ -38,7 +38,8 @@ class NotTheFroutendDemoTests(unittest.TestCase):
             HumanReviewStatus.IN_REVIEW,
         )
         self.assertIn(
-            "[claim-two] Covered providers are explicitly identified by the policy.",
+            "[claim-two] (AI-generated) Covered providers are explicitly "
+            "identified by the policy.",
             brief.ai_output,
         )
 

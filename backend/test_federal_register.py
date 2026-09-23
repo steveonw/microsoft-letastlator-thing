@@ -1,5 +1,6 @@
 import unittest
 
+from evidence import find_quote_span
 from federal_register import chunk_text, normalize_document
 
 
@@ -99,3 +100,29 @@ class FederalRegisterNormalizerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SuperscriptNormalizationTests(unittest.TestCase):
+    """
+    Federal Register plain text writes exponents as "10[supcaret]26". A model
+    reading that quotes "10^26", so without normalization every citation to a
+    computational-threshold definition fails to match.
+    """
+
+    def test_supcaret_marker_becomes_caret(self) -> None:
+        raw = "training run using more than 10[supcaret]26 computational operations"
+        document = normalize_document(
+            {"title": "t", "document_number": "d"},
+            raw,
+        )
+        self.assertIn("10^26", document.raw_text)
+        self.assertNotIn("[supcaret]", document.raw_text)
+
+    def test_model_style_exponent_quote_matches_after_normalization(self) -> None:
+        raw = "any cluster with more than 10[supcaret]20 operations per second"
+        document = normalize_document(
+            {"title": "t", "document_number": "d"},
+            raw,
+        )
+        start, end = find_quote_span(document.raw_text, "more than 10^20 operations")
+        self.assertEqual(document.raw_text[start:end], "more than 10^20 operations")

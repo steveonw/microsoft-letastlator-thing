@@ -1,4 +1,5 @@
 import unittest
+import warnings
 from datetime import date, datetime, timezone
 from unittest.mock import patch
 
@@ -11,6 +12,7 @@ from response_sources import (
     _comment_record_from_detail,
     _download_attachment_bytes,
     _extract_attachment_payload,
+    extraction_is_degraded,
     _validate_attachment_url,
     duplicate_cluster_id,
     is_attachment_placeholder,
@@ -482,3 +484,65 @@ class ResponseAnalystTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmailRedactionEdgeCaseTests(unittest.TestCase):
+    """
+    Regression: a live comment published a named individual's work email
+    unredacted because the address ended a sentence, while the source was
+    still labelled pii_redaction_status=redacted.
+    """
+
+    def test_sentence_final_email_is_redacted(self) -> None:
+        text = "Please contact Harley Geiger at athgeiger@venable.com."
+        redacted, status = sanitize_public_text(text)
+        self.assertNotIn("athgeiger@venable.com", redacted)
+        self.assertEqual(status, PiiRedactionStatus.REDACTED)
+
+    def test_multiple_and_punctuated_emails_are_redacted(self) -> None:
+        text = "Write to a.b+tag@sub.example.co.uk, or c@d.org."
+        redacted, _ = sanitize_public_text(text)
+        self.assertNotIn("@", redacted.replace("[REDACTED EMAIL]", ""))
+
+    def test_ordinary_text_is_untouched(self) -> None:
+        text = "The rule costs 5@ 10 per unit and mentions no addresses."
+        redacted, status = sanitize_public_text(text)
+        self.assertEqual(redacted, text)
+        self.assertEqual(status, PiiRedactionStatus.NOT_DETECTED)
+
+
+class ExtractionQualityTests(unittest.TestCase):
+    """
+    Some PDFs extract with ligatures or with word spacing dropped entirely.
+    Ligatures are repairable. Lost spacing is not, so it has to be visible
+    rather than silently feeding unusable text to redaction and citation.
+    """
+
+    def test_ligatures_are_normalized(self) -> None:
+        payload = "the term is de\ufb01ned and e\ufb00ective".encode()
+        text = _extract_attachment_payload(payload, "txt")
+        self.assertIn("defined", text)
+        self.assertIn("effective", text)
+        self.assertNotIn("\ufb01", text)
+
+    def test_glued_text_is_detected(self) -> None:
+        glued = "byemailingai_reportingonaquarterlybasisasdefinedinparagraph" * 8
+        self.assertTrue(extraction_is_degraded(glued))
+
+    def test_ordinary_prose_is_not_flagged(self) -> None:
+        prose = "The proposed rule would require quarterly reporting. " * 10
+        self.assertFalse(extraction_is_degraded(prose))
+
+    def test_short_text_is_not_flagged(self) -> None:
+        self.assertFalse(extraction_is_degraded("See attached file(s)"))
+
+    def test_degraded_attachment_is_marked_for_human_review(self) -> None:
+        glued = "wordsallruntogetherwithnospacingatallhere" * 10
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            combined = _combine_comment_and_attachments(
+                "See attached file(s)",
+                [("Comment letter", glued)],
+            )
+        self.assertIn("without word spacing", combined)
+        self.assertIn("human review", combined)

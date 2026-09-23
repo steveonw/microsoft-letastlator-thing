@@ -235,11 +235,54 @@ class RushModeTests(unittest.TestCase):
             HumanReviewStatus.APPROVED,
         )
 
-        approved = approve_rush_final_review(rushed)
+        # Approval is refused while any section is unreviewed: "the AI cannot
+        # approve its own work" and "approval requires review" are different
+        # guarantees, and Rush Mode has to enforce both.
+        with self.assertRaises(ValueError) as refused:
+            approve_rush_final_review(rushed)
+        self.assertIn("unreviewed", str(refused.exception))
+
+        reviewed = rushed.model_copy(deep=True)
+        for step in reviewed.steps:
+            step.human_review.status = HumanReviewStatus.REVIEWED
+
+        approved = approve_rush_final_review(reviewed)
         self.assertEqual(
             approved.final_review_status,
             HumanReviewStatus.APPROVED,
         )
+
+    def test_unreviewed_approval_requires_acknowledgement_and_is_recorded(
+        self,
+    ) -> None:
+        def model_call(system_prompt: str, user_prompt: str) -> str:
+            del system_prompt, user_prompt
+            return json.dumps(
+                {
+                    "status": "supported",
+                    "explanation": "Direct support.",
+                    "narrower_wording": None,
+                }
+            )
+
+        rushed = run_rush_analysis(
+            base_run(response=False),
+            base_run(response=True),
+            model_call,
+        )
+
+        approved = approve_rush_final_review(rushed, acknowledge_unreviewed=True)
+        self.assertEqual(
+            approved.final_review_status,
+            HumanReviewStatus.APPROVED,
+        )
+
+        # The shortcut must leave a trace on every section it skipped.
+        for step in approved.steps:
+            self.assertTrue(
+                any("acknowledged override" in note for note in step.human_review.notes),
+                f"{step.id} has no override note",
+            )
 
     def test_return_to_final_review_clears_open_section(self) -> None:
         def model_call(system_prompt: str, user_prompt: str) -> str:

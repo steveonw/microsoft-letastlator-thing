@@ -308,11 +308,14 @@ class SelectiveReanalysisTests(unittest.TestCase):
             briefed.final_review_status,
             HumanReviewStatus.IN_REVIEW,
         )
-        self.assertIn("[claim-one] The policy creates a reporting duty.", brief.ai_output)
-        self.assertIn("Evidence: evidence-one", brief.ai_output)
-        self.assertIn("[claim-two] Covered providers are identified.", brief.ai_output)
         self.assertIn(
-            "[claim-sibling] A separate reviewed finding remains stable.",
+            "[claim-one] (AI-generated) The policy creates a reporting duty.",
+            brief.ai_output,
+        )
+        self.assertIn("Evidence: evidence-one", brief.ai_output)
+        self.assertIn("[claim-two] (AI-generated) Covered providers are identified.", brief.ai_output)
+        self.assertIn(
+            "[claim-sibling] (AI-generated) A separate reviewed finding remains stable.",
             brief.ai_output,
         )
         self.assertNotIn("[claim-four]", brief.ai_output)
@@ -334,3 +337,71 @@ class SelectiveReanalysisTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReanalysisEditTrailTests(unittest.TestCase):
+    """
+    Guided mode records human edits. Re-analysis has to record them too, or the
+    same edit is audited in one mode and anonymous in the other.
+    """
+
+    def _human_edit(self, run: AnalysisRun, step_id: str, text: str) -> AnalysisRun:
+        def regenerate(
+            snapshot: AnalysisRun, selected: AnalysisStep
+        ) -> ReanalysisResult:
+            del snapshot
+            replacement = selected.model_copy(deep=True)
+            replacement.claims[0].text = text
+            return ReanalysisResult(
+                step=replacement,
+                human_edited_claim_ids=(replacement.claims[0].id,),
+            )
+
+        return reanalyze_step(run, step_id, regenerate)
+
+    def test_human_edit_keeps_original_wording_and_retypes_claim(self) -> None:
+        run = demo_analysis()
+        step_id = run.steps[0].id
+        before = run.steps[0].claims[0].text
+
+        updated = self._human_edit(run, step_id, "Human rewording of the finding.")
+        claim = updated.steps[0].claims[0]
+
+        self.assertEqual(claim.text, "Human rewording of the finding.")
+        self.assertEqual(claim.original_text, before)
+        self.assertEqual(claim.information_type, InformationType.HUMAN_INTERPRETATION)
+        self.assertIn(claim.id, updated.steps[0].human_review.edited_claim_ids)
+
+    def test_machine_regeneration_is_not_marked_human(self) -> None:
+        run = demo_analysis()
+        step_id = run.steps[0].id
+
+        def regenerate(
+            snapshot: AnalysisRun, selected: AnalysisStep
+        ) -> ReanalysisResult:
+            del snapshot
+            replacement = selected.model_copy(deep=True)
+            replacement.claims[0].text = "Model regenerated this finding."
+            return ReanalysisResult(step=replacement)
+
+        updated = reanalyze_step(run, step_id, regenerate)
+        claim = updated.steps[0].claims[0]
+
+        self.assertEqual(claim.information_type, InformationType.AI_INTERPRETATION)
+        self.assertIsNone(claim.original_text)
+        self.assertEqual(updated.steps[0].human_review.edited_claim_ids, [])
+
+    def test_unknown_human_edited_claim_is_rejected(self) -> None:
+        run = demo_analysis()
+
+        def regenerate(
+            snapshot: AnalysisRun, selected: AnalysisStep
+        ) -> ReanalysisResult:
+            del snapshot
+            return ReanalysisResult(
+                step=selected.model_copy(deep=True),
+                human_edited_claim_ids=("claim-does-not-exist",),
+            )
+
+        with self.assertRaises(ValueError):
+            reanalyze_step(run, run.steps[0].id, regenerate)
