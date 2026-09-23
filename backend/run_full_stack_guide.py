@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
+from federal_register import NormalizedPolicyDocument, fetch_and_normalize
 from foundry_client import FoundryChatClient, FoundryConfig
 from guided_review import (
     begin_guided_review,
@@ -38,8 +39,12 @@ from openrouter_client import (
     OpenRouterChatClient,
     OpenRouterConfig,
 )
+from policy_interpreter import run_policy_interpreter
+from response_sources import fetch_comments_for_docket, source_from_response_record
+from response_viewpoint_analyst import run_response_viewpoint_analyst
 from rush_mode import (
     approve_rush_final_review,
+    combine_analysis_runs,
     open_rush_step_for_review,
     return_to_rush_final_review,
     run_rush_analysis,
@@ -235,6 +240,34 @@ def make_rush_inputs() -> tuple[AnalysisRun, AnalysisRun]:
     return policy_run, response_run
 
 
+def _empty_response_analysis(policy_analysis: AnalysisRun) -> AnalysisRun:
+    policy = policy_analysis.policy.model_copy(deep=True)
+    policy.source_ids = []
+    return AnalysisRun(
+        id=f"empty-response-{policy_analysis.id}",
+        mode=AnalysisMode.GUIDED,
+        policy=policy,
+        sources=[],
+        evidence=[],
+        steps=[],
+        current_step_id=None,
+        final_review_status=HumanReviewStatus.NOT_REVIEWED,
+    )
+
+
+def _guided_combined(
+    policy_analysis: AnalysisRun,
+    response_analysis: AnalysisRun,
+) -> AnalysisRun:
+    combined = combine_analysis_runs(policy_analysis, response_analysis)
+    combined.mode = AnalysisMode.GUIDED
+    combined.current_step_id = None
+    combined.final_review_status = HumanReviewStatus.NOT_REVIEWED
+    for step in combined.steps:
+        step.human_review.status = HumanReviewStatus.NOT_REVIEWED
+    return AnalysisRun.model_validate(combined.model_dump(mode="python"))
+
+
 def deterministic_verifier(system_prompt: str, user_prompt: str) -> str:
     del system_prompt
     if "Claim ID:" not in user_prompt:
@@ -309,8 +342,8 @@ class RuntimeProvider:
             "has_regulations_api_key": bool(self.regulations_api_key),
             "credentials_storage": "process_memory_only",
             "regulations_note": (
-                "Stored only for local live-ingestion wiring; the guide data path "
-                "does not call Regulations.gov yet."
+                "Used only by the local live-comment ingestion route and kept "
+                "in process memory."
             ),
         }
 
@@ -351,11 +384,114 @@ class GuideState:
     def __init__(self) -> None:
         self.analysis = make_guided_demo()
         self.provider = RuntimeProvider()
+        self.document: NormalizedPolicyDocument | None = None
+        self.policy_analysis: AnalysisRun | None = None
+        self.response_analysis: AnalysisRun | None = None
+
+    def _require_live_model(self) -> None:
+        if self.provider.kind == "deterministic":
+            raise ValueError(
+                "Live source analysis requires OpenRouter, OpenAI, or Microsoft Foundry. "
+                "Configure a provider first, or keep using the fictional demo."
+            )
+
+    def _guided_loaded_analysis(self) -> AnalysisRun:
+        if self.policy_analysis is None:
+            return make_guided_demo()
+        if self.response_analysis is None:
+            loaded = AnalysisRun.model_validate(
+                self.policy_analysis.model_dump(mode="python")
+            )
+            loaded.mode = AnalysisMode.GUIDED
+            loaded.current_step_id = None
+            loaded.final_review_status = HumanReviewStatus.NOT_REVIEWED
+            for step in loaded.steps:
+                step.human_review.status = HumanReviewStatus.NOT_REVIEWED
+            return AnalysisRun.model_validate(loaded.model_dump(mode="python"))
+        return _guided_combined(self.policy_analysis, self.response_analysis)
 
     def reset(self, mode: str = "guided") -> AnalysisRun:
         if mode == "rush":
             return self.run_rush()
-        self.analysis = make_guided_demo()
+        self.analysis = self._guided_loaded_analysis()
+        return self.analysis
+
+    def load_policy(self, document_number: str) -> AnalysisRun:
+        document_number = document_number.strip()
+        if not document_number:
+            raise ValueError("Federal Register document number is required")
+        self._require_live_model()
+
+        try:
+            document = fetch_and_normalize(document_number)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not load Federal Register document {document_number}: {exc}"
+            ) from exc
+
+        analysis = run_policy_interpreter(
+            document,
+            self.provider.model_call(),
+            mode=AnalysisMode.GUIDED,
+        )
+        self.document = document
+        self.policy_analysis = analysis
+        self.response_analysis = None
+        self.analysis = AnalysisRun.model_validate(
+            analysis.model_dump(mode="python")
+        )
+        self.analysis.current_step_id = None
+        return AnalysisRun.model_validate(self.analysis.model_dump(mode="python"))
+
+    def load_comments(
+        self,
+        docket_id: str,
+        *,
+        max_comments: int = 12,
+    ) -> AnalysisRun:
+        docket_id = docket_id.strip()
+        if not docket_id:
+            raise ValueError("Regulations.gov docket ID is required")
+        if self.document is None or self.policy_analysis is None:
+            raise ValueError("Load a Federal Register policy before loading comments")
+        if not self.provider.regulations_api_key:
+            raise ValueError(
+                "A Regulations.gov API key is required to load live comments"
+            )
+        if max_comments < 1 or max_comments > 100:
+            raise ValueError("max_comments must be between 1 and 100")
+        self._require_live_model()
+
+        try:
+            records = fetch_comments_for_docket(
+                docket_id,
+                api_key=self.provider.regulations_api_key,
+                max_comments=max_comments,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not load Regulations.gov docket {docket_id}: {exc}"
+            ) from exc
+        if not records:
+            raise ValueError(
+                f"No usable Regulations.gov comments were returned for {docket_id}"
+            )
+
+        response_sources = [
+            source_from_response_record(record)
+            for record in records
+        ]
+        response_analysis = run_response_viewpoint_analyst(
+            self.document,
+            response_sources,
+            self.provider.model_call(),
+            mode=AnalysisMode.GUIDED,
+        )
+        self.response_analysis = response_analysis
+        self.analysis = _guided_combined(
+            self.policy_analysis,
+            response_analysis,
+        )
         return self.analysis
 
     def guided_begin(self, step_id: str | None = None) -> AnalysisRun:
@@ -387,7 +523,15 @@ class GuideState:
         return self.analysis
 
     def run_rush(self) -> AnalysisRun:
-        policy_run, response_run = make_rush_inputs()
+        if self.policy_analysis is None:
+            policy_run, response_run = make_rush_inputs()
+        else:
+            policy_run = self.policy_analysis
+            response_run = (
+                self.response_analysis
+                if self.response_analysis is not None
+                else _empty_response_analysis(policy_run)
+            )
         self.analysis = run_rush_analysis(
             policy_run,
             response_run,
@@ -482,7 +626,7 @@ def _json_bytes(payload: Any) -> bytes:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "PolicyTraceFullStackGuide/1.1"
+    server_version = "PolicyTraceFullStackGuide/1.2"
 
     def _send(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -541,7 +685,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, STATE.provider.status())
                 return
 
-            if self.path == "/api/reset":
+            if self.path == "/api/source/load":
+                result = STATE.load_policy(
+                    str(body.get("document_number", ""))
+                )
+            elif self.path == "/api/source/comments":
+                try:
+                    max_comments = int(body.get("max_comments", 12))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("max_comments must be an integer") from exc
+                result = STATE.load_comments(
+                    str(body.get("docket_id", "")),
+                    max_comments=max_comments,
+                )
+            elif self.path == "/api/reset":
                 result = STATE.reset(str(body.get("mode", "guided")))
             elif self.path == "/api/guided/begin":
                 result = STATE.guided_begin(body.get("step_id"))
