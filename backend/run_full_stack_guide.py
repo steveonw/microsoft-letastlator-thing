@@ -626,7 +626,7 @@ def _json_bytes(payload: Any) -> bytes:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "PolicyTraceFullStackGuide/1.2"
+    server_version = "PolicyTraceFullStackGuide/1.3"
 
     def _send(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -665,6 +665,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/styles.css":
             self._static("styles.css", "text/css; charset=utf-8")
+            return
+        if self.path == "/favicon.ico":
+            self._send(204, b"", "image/x-icon")
             return
         if self.path == "/api/analysis":
             self._send_json(200, STATE.analysis)
