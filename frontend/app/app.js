@@ -15,6 +15,7 @@ let selectedStepId = null;
 let selectedClaimId = null;
 let editingClaimId = null;
 let flaggingClaimId = null;
+let corpusStatus = null;
 let apiRequestInFlight = false;
 
 const byId = (id) => document.getElementById(id);
@@ -230,11 +231,79 @@ function render() {
   const bits = [run.policy?.jurisdiction, run.policy?.version].filter(Boolean);
   byId("policy-meta").textContent = bits.join(" · ");
   byId("review-state").textContent = say(run.final_review_status);
+  renderCorpusStatus();
 
   renderSections();
   renderFindings();
   renderEvidence();
   renderActions();
+}
+
+function metric(label, value) {
+  const item = document.createElement("div");
+  item.className = "corpus-metric";
+
+  const number = document.createElement("strong");
+  number.textContent = String(value ?? "—");
+
+  const name = document.createElement("span");
+  name.textContent = label;
+
+  item.append(number, name);
+  return item;
+}
+
+function renderCorpusStatus() {
+  const card = byId("corpus-card");
+  if (!card) return;
+
+  if (!corpusStatus?.available) {
+    card.hidden = true;
+    return;
+  }
+
+  card.hidden = false;
+  const metrics = byId("corpus-metrics");
+  metrics.replaceChildren(
+    metric("requested", corpusStatus.requested_count),
+    metric("retrieved", corpusStatus.retrieved_count),
+    metric("analyzed", corpusStatus.analyzed_source_count),
+    metric("exact-text clusters", corpusStatus.exact_text_cluster_count),
+    metric("retrieval failures", corpusStatus.failed_retrieval_count)
+  );
+
+  const hasGap =
+    Number(corpusStatus.failed_retrieval_count || 0) > 0 ||
+    Number(corpusStatus.unusable_retrieval_count || 0) > 0 ||
+    Number(corpusStatus.degraded_source_count || 0) > 0;
+  const health = byId("corpus-health");
+  health.textContent = hasGap ? "corpus has disclosed gaps" : "retrieval complete";
+  health.className = `pill ${hasGap ? "corpus-gap" : "corpus-ok"}`;
+
+  byId("corpus-warning").textContent =
+    corpusStatus.representativeness_warning || "";
+
+  const types = Object.entries(corpusStatus.source_type_counts || {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${say(key)}: ${value}`)
+    .join(" · ");
+
+  const details = [
+    corpusStatus.docket_id ? `Docket: ${corpusStatus.docket_id}` : "",
+    `Unusable retrieved: ${corpusStatus.unusable_retrieval_count || 0}`,
+    `PII-pattern redactions: ${corpusStatus.pii_redacted_count || 0}`,
+    `Degraded extraction: ${corpusStatus.degraded_source_count || 0}`,
+    types ? `Source types: ${types}` : "",
+  ].filter(Boolean);
+  byId("corpus-detail").textContent = details.join(" · ");
+}
+
+async function refreshCorpusStatus() {
+  const status = await api("/api/source/comments/status");
+  if (!status) return null;
+  corpusStatus = status;
+  if (run) renderCorpusStatus();
+  return status;
 }
 
 function renderSections() {
@@ -812,6 +881,7 @@ async function loadPolicy() {
     selectedClaimId = null;
     editingClaimId = null;
     flaggingClaimId = null;
+    corpusStatus = null;
     const title = updated.policy?.title || documentNumber;
     byId("source-state").textContent =
       `Policy ready: ${title}. Load public comments if you want them, then choose a review mode above.`;
@@ -838,10 +908,15 @@ async function loadComments() {
     editingClaimId = null;
     flaggingClaimId = null;
     const count = Number(byId("max-comments").value) || 12;
+    const status = await refreshCorpusStatus();
+    const retrieved = status?.retrieved_count ?? "unknown";
+    const failures = status?.failed_retrieval_count ?? 0;
     byId("source-state").textContent =
-      `Policy and public comments are ready (requested up to ${count}). Choose Guided or Rush above.`;
+      `Policy and public comments are ready: ${retrieved} retrieved from up to ${count} requested` +
+      `${failures ? `, with ${failures} disclosed retrieval failure${failures === 1 ? "" : "s"}` : ""}. ` +
+      "Choose Guided or Rush above.";
     byId("mode-pill").textContent = "ready to choose";
-    banner("Live comments analyzed. Now choose Guided or Rush.", "info");
+    banner("Live comments analyzed. Corpus limits are tracked for review.", "info");
   }
 }
 
@@ -905,6 +980,7 @@ async function start(mode) {
     run = started;
     selectedStepId = started.current_step_id ?? null;
     selectedClaimId = null;
+    if (!corpusStatus) await refreshCorpusStatus();
     render();
   }
 }
@@ -929,6 +1005,7 @@ function boot() {
     selectedClaimId = null;
     editingClaimId = null;
     flaggingClaimId = null;
+    corpusStatus = null;
     byId("brief-screen").hidden = true;
     banner("");
     render();
