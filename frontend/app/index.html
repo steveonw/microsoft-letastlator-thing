@@ -11,7 +11,7 @@
     <div class="brand">
       <span class="mark">PolicyTrace</span>
       <span class="tagline">Every finding traced to the source text</span>
-      <span id="build-marker" class="build-marker">build 7</span>
+      <span id="build-marker" class="build-marker">build 8</span>
     </div>
     <div class="topbar-right">
       <span id="mode-pill" class="pill">not started</span>
@@ -122,8 +122,9 @@
           </div>
           <button id="load-comments" type="button">Load and analyze comments</button>
           <p class="muted small">
-            Comments are redacted for personal information and grouped so
-            duplicate form letters are not counted as separate voices.
+            Supported email and phone patterns are redacted before analysis.
+            Exact-text duplicate submissions are clustered for corpus reporting;
+            similar-but-not-identical form letters may remain separate.
           </p>
         </div>
 
@@ -139,6 +140,16 @@
         <h1 id="policy-title">&nbsp;</h1>
         <p id="policy-meta" class="muted"></p>
       </div>
+
+      <section id="corpus-card" class="corpus-card" hidden>
+        <div class="col-head">
+          <h2>Corpus & limitations</h2>
+          <span id="corpus-health" class="pill"></span>
+        </div>
+        <div id="corpus-metrics" class="corpus-metrics"></div>
+        <p id="corpus-warning" class="corpus-warning"></p>
+        <p id="corpus-detail" class="muted small"></p>
+      </section>
 
       <div class="columns">
         <aside class="col sections">
