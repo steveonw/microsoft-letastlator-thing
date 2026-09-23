@@ -229,8 +229,32 @@ byId("clear-provider").onclick = async () => {
   }
 };
 
+byId("load-policy").onclick = () => {
+  const documentNumber = byId("document-number").value.trim();
+  if (!documentNumber) return message("Enter a Federal Register document number.", true);
+  action(
+    "/api/source/load",
+    {document_number: documentNumber},
+    "Loaded and analyzed Federal Register document " + documentNumber + "."
+  );
+};
+
+byId("load-comments").onclick = () => {
+  const docketId = byId("docket-id").value.trim();
+  const maxComments = Number(byId("max-comments").value);
+  if (!docketId) return message("Enter a Regulations.gov docket ID.", true);
+  if (!Number.isInteger(maxComments) || maxComments < 1 || maxComments > 100) {
+    return message("Maximum comments must be an integer from 1 to 100.", true);
+  }
+  action(
+    "/api/source/comments",
+    {docket_id: docketId, max_comments: maxComments},
+    "Loaded and analyzed supplied comments from docket " + docketId + "."
+  );
+};
+
 byId("guided-reset").onclick = () =>
-  action("/api/reset", {mode: "guided"}, "Guided demo reset.");
+  action("/api/reset", {mode: "guided"}, "Guided state reset from the currently loaded source.");
 byId("guided-begin").onclick = () =>
   action("/api/guided/begin", {}, "Guided review started.");
 byId("rush-run").onclick = () =>
