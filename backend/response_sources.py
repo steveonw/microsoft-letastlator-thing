@@ -77,6 +77,12 @@ def sanitize_public_text(text: str) -> tuple[str, PiiRedactionStatus]:
     return redacted, PiiRedactionStatus.NOT_DETECTED
 
 
+def is_attachment_placeholder(text: str | None) -> bool:
+    if not text:
+        return False
+    return bool(_ATTACHMENT_PLACEHOLDER_RE.fullmatch(text.strip()))
+
+
 def duplicate_cluster_id(text: str) -> str:
     normalized = re.sub(r"\s+", " ", text).strip().casefold()
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
@@ -93,7 +99,11 @@ def source_from_response_record(record: ResponseRecord) -> Source:
         submitted_at=record.posted_at,
         raw_text=sanitized,
         pii_redaction_status=pii_status,
-        duplicate_cluster_id=duplicate_cluster_id(sanitized),
+        duplicate_cluster_id=(
+            None
+            if is_attachment_placeholder(sanitized)
+            else duplicate_cluster_id(sanitized)
+        ),
     )
 
 
@@ -337,7 +347,7 @@ def _combine_comment_and_attachments(
 ) -> str:
     parts: list[str] = []
     clean_comment = comment.strip()
-    if clean_comment and not _ATTACHMENT_PLACEHOLDER_RE.fullmatch(clean_comment):
+    if clean_comment and not is_attachment_placeholder(clean_comment):
         parts.append(clean_comment)
 
     for title, text in attachment_texts:
