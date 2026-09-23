@@ -6,6 +6,7 @@ from unittest.mock import patch
 from federal_register import NormalizedChunk, NormalizedPolicyDocument
 from models import InformationType, PiiRedactionStatus, StepKind, VerificationStatus
 from response_sources import (
+    CommentFetchError,
     ResponseRecord,
     _attachment_candidates,
     _combine_comment_and_attachments,
@@ -13,6 +14,7 @@ from response_sources import (
     _download_attachment_bytes,
     _extract_attachment_payload,
     fetch_comments_for_docket,
+    fetch_comments_for_docket_with_report,
     extraction_is_degraded,
     _validate_attachment_url,
     duplicate_cluster_id,
@@ -253,6 +255,16 @@ class ResponseSourceTests(unittest.TestCase):
         calls: list[tuple[str, int]] = []
         captured: dict[str, object] = {}
 
+        class FakeFuture:
+            def __init__(self, value=None, error=None):
+                self.value = value
+                self.error = error
+
+            def result(self):
+                if self.error is not None:
+                    raise self.error
+                return self.value
+
         class FakeExecutor:
             def __init__(self, max_workers: int):
                 captured["max_workers"] = max_workers
@@ -263,10 +275,12 @@ class ResponseSourceTests(unittest.TestCase):
             def __exit__(self, exc_type, exc, tb):
                 return False
 
-            def map(self, fn, items):
-                ids = list(items)
-                captured["ids"] = ids
-                return [fn(item) for item in ids]
+            def submit(self, fn, comment_id, **kwargs):
+                captured.setdefault("ids", []).append(comment_id)
+                try:
+                    return FakeFuture(fn(comment_id, **kwargs))
+                except Exception as exc:
+                    return FakeFuture(error=exc)
 
         def fake_get_json(path, *, api_key, params=None, timeout=30):
             del api_key, params
@@ -318,6 +332,127 @@ class ResponseSourceTests(unittest.TestCase):
             ["COMMENT-1", "COMMENT-2", "COMMENT-3"],
         )
         self.assertIn(("/comments/COMMENT-1", 11), calls)
+
+    def test_live_comments_replace_failed_detail_fetches_when_more_are_available(self) -> None:
+        def fake_get_json(path, *, api_key, params=None, timeout=30):
+            del api_key, params, timeout
+            if path == "/documents":
+                return {"data": [{"attributes": {"objectId": "OBJ-1"}}]}
+            if path == "/comments":
+                return {
+                    "data": [
+                        {"id": "COMMENT-1"},
+                        {"id": "COMMENT-2"},
+                        {"id": "COMMENT-3"},
+                        {"id": "COMMENT-4"},
+                    ]
+                }
+            raise AssertionError(f"unexpected path {path}")
+
+        def fake_fetch(comment_id, *, api_key, timeout):
+            del api_key, timeout
+            if comment_id == "COMMENT-2":
+                raise RuntimeError("rate limited")
+            return ResponseRecord(
+                id=comment_id,
+                title=comment_id,
+                text=f"Text for {comment_id}.",
+                information_type=InformationType.PUBLIC_OPINION,
+            )
+
+        with (
+            patch("response_sources._get_json", side_effect=fake_get_json),
+            patch("response_sources._fetch_comment_record", side_effect=fake_fetch),
+        ):
+            result = fetch_comments_for_docket_with_report(
+                "DEMO-DOCKET",
+                api_key="test-key",
+                max_comments=3,
+            )
+
+        self.assertEqual(
+            [record.id for record in result.records],
+            ["COMMENT-1", "COMMENT-3", "COMMENT-4"],
+        )
+        self.assertEqual(result.report.requested_count, 3)
+        self.assertEqual(result.report.retrieved_count, 3)
+        self.assertEqual(result.report.attempted_count, 4)
+        self.assertEqual(len(result.report.failures), 1)
+        self.assertEqual(result.report.failures[0].comment_id, "COMMENT-2")
+        self.assertEqual(result.report.failures[0].error_type, "RuntimeError")
+
+    def test_live_comments_report_partial_gap_when_replacement_is_unavailable(self) -> None:
+        def fake_get_json(path, *, api_key, params=None, timeout=30):
+            del api_key, params, timeout
+            if path == "/documents":
+                return {"data": [{"attributes": {"objectId": "OBJ-1"}}]}
+            if path == "/comments":
+                return {
+                    "data": [
+                        {"id": "COMMENT-1"},
+                        {"id": "COMMENT-2"},
+                    ]
+                }
+            raise AssertionError(f"unexpected path {path}")
+
+        def fake_fetch(comment_id, *, api_key, timeout):
+            del api_key, timeout
+            if comment_id == "COMMENT-2":
+                raise TimeoutError("request timed out")
+            return ResponseRecord(
+                id=comment_id,
+                title=comment_id,
+                text=f"Text for {comment_id}.",
+                information_type=InformationType.PUBLIC_OPINION,
+            )
+
+        with (
+            patch("response_sources._get_json", side_effect=fake_get_json),
+            patch("response_sources._fetch_comment_record", side_effect=fake_fetch),
+        ):
+            result = fetch_comments_for_docket_with_report(
+                "DEMO-DOCKET",
+                api_key="test-key",
+                max_comments=2,
+            )
+
+        self.assertEqual([record.id for record in result.records], ["COMMENT-1"])
+        self.assertEqual(result.report.retrieved_count, 1)
+        self.assertEqual(result.report.attempted_count, 2)
+        self.assertEqual(result.report.failures[0].error_type, "TimeoutError")
+
+    def test_live_comments_raise_when_every_attempt_fails(self) -> None:
+        def fake_get_json(path, *, api_key, params=None, timeout=30):
+            del api_key, params, timeout
+            if path == "/documents":
+                return {"data": [{"attributes": {"objectId": "OBJ-1"}}]}
+            if path == "/comments":
+                return {
+                    "data": [
+                        {"id": "COMMENT-1"},
+                        {"id": "COMMENT-2"},
+                    ]
+                }
+            raise AssertionError(f"unexpected path {path}")
+
+        with (
+            patch("response_sources._get_json", side_effect=fake_get_json),
+            patch(
+                "response_sources._fetch_comment_record",
+                side_effect=RuntimeError("provider unavailable"),
+            ),
+        ):
+            with self.assertRaises(CommentFetchError) as raised:
+                fetch_comments_for_docket_with_report(
+                    "DEMO-DOCKET",
+                    api_key="test-key",
+                    max_comments=2,
+                )
+
+        report = raised.exception.report
+        self.assertEqual(report.retrieved_count, 0)
+        self.assertEqual(report.attempted_count, 2)
+        self.assertEqual(len(report.failures), 2)
 
 
 class ResponseAnalystTests(unittest.TestCase):
