@@ -515,3 +515,71 @@ class ErrorLogTests(unittest.TestCase):
                 [entry["error_id"] for entry in recent],
                 [first, second],
             )
+
+
+class HiddenVerificationRefreshRegressionTests(unittest.TestCase):
+    def test_hidden_verification_refresh_does_not_block_final_brief(self) -> None:
+        state = GuideState()
+        rushed = state.reset("rush")
+
+        content = [
+            step
+            for step in rushed.steps
+            if step.kind.value not in {"verification", "draft_brief"}
+        ]
+        first = content[0]
+
+        state.rush_open(first.id)
+        edited = state.reanalyze(
+            first.id,
+            "Reviewer correction.",
+            claim_id=first.claims[0].id,
+            human_edited=True,
+        )
+
+        verification = next(
+            step for step in edited.steps if step.kind.value == "verification"
+        )
+        self.assertEqual(verification.status, StepStatus.NEEDS_REFRESH)
+
+        # Refresh and review every user-facing stale/content section only.
+        while True:
+            stale_content = next(
+                (
+                    step
+                    for step in state.analysis.steps
+                    if step.kind.value not in {"verification", "draft_brief"}
+                    and step.status == StepStatus.NEEDS_REFRESH
+                    and all(
+                        next(
+                            dep
+                            for dep in state.analysis.steps
+                            if dep.id == dependency
+                        ).status != StepStatus.NEEDS_REFRESH
+                        for dependency in step.depends_on
+                    )
+                ),
+                None,
+            )
+            if stale_content is None:
+                break
+            state.refresh(stale_content.id)
+
+        for step in [
+            item
+            for item in state.analysis.steps
+            if item.kind.value not in {"verification", "draft_brief"}
+        ]:
+            state.review_reanalysis(step.id)
+
+        # The internal verification summary can remain stale; it is not a
+        # human-facing brief dependency and must not trap the reviewer.
+        verification = next(
+            step for step in state.analysis.steps if step.kind.value == "verification"
+        )
+        self.assertEqual(verification.status, StepStatus.NEEDS_REFRESH)
+
+        briefed = state.brief()
+        self.assertTrue(
+            any(step.kind.value == "draft_brief" for step in briefed.steps)
+        )

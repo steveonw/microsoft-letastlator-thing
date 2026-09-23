@@ -687,6 +687,7 @@ class GuideState:
             step.id
             for step in reviewed.steps
             if step.status == StepStatus.NEEDS_REFRESH
+            and step.kind not in {StepKind.VERIFICATION, StepKind.DRAFT_BRIEF}
         ]
         if stale:
             raise ValueError(

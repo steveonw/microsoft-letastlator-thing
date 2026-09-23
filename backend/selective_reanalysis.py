@@ -359,6 +359,7 @@ def build_final_brief(analysis: AnalysisRun) -> AnalysisRun:
         step.id
         for step in updated.steps
         if step.status == StepStatus.NEEDS_REFRESH
+        and step.kind not in {StepKind.VERIFICATION, StepKind.DRAFT_BRIEF}
     ]
     if stale_steps:
         raise ValueError(
