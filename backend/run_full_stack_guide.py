@@ -91,6 +91,11 @@ def _claim(
         information_type=InformationType.AI_INTERPRETATION,
         evidence_ids=[evidence_id],
         verification_status=status,
+        verification_note=(
+            None
+            if status == VerificationStatus.SUPPORTED
+            else "Awaiting semantic verification in the full-stack guide."
+        ),
         confidence="high",
     )
 
