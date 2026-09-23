@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from models import HumanReviewStatus, StepStatus
+from response_sources import CommentFetchReport, CommentFetchResult
 from run_full_stack_guide import GuideState, make_rush_inputs
 
 
@@ -73,10 +74,22 @@ class FullStackGuideTests(unittest.TestCase):
         fake_record = object()
         fake_source = response_run.sources[0]
 
+        fetch_result = CommentFetchResult(
+            records=[fake_record],
+            report=CommentFetchReport(
+                docket_id="BIS-2024-0047",
+                requested_count=7,
+                source_document_count=1,
+                observed_candidate_count=1,
+                attempted_count=1,
+                retrieved_count=1,
+            ),
+        )
+
         with (
             patch(
-                "run_full_stack_guide.fetch_comments_for_docket",
-                return_value=[fake_record],
+                "run_full_stack_guide.fetch_comments_for_docket_with_report",
+                return_value=fetch_result,
             ) as fetch_comments,
             patch(
                 "run_full_stack_guide.source_from_response_record",
@@ -94,6 +107,8 @@ class FullStackGuideTests(unittest.TestCase):
             api_key="regulations-secret",
             max_comments=7,
         )
+        self.assertIsNotNone(state.last_comment_fetch_report)
+        self.assertEqual(state.last_comment_fetch_report.retrieved_count, 1)
         self.assertIs(state.response_analysis, response_run)
         kinds = {step.kind.value for step in loaded.steps}
         self.assertIn("policy_understanding", kinds)
