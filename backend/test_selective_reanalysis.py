@@ -123,7 +123,7 @@ def demo_analysis() -> AnalysisRun:
         kind=StepKind.PUBLIC_RESPONSE,
         title="Public response",
         status=StepStatus.VERIFIED,
-        depends_on=[step-three.id],
+        depends_on=[step_three.id],
         claims=[claim("claim-four", "The filing deadline is part of the analyzed material.", "evidence-three")],
         human_review=HumanReview(status=HumanReviewStatus.REVIEWED),
         version=1,
