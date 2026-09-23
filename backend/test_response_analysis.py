@@ -368,6 +368,45 @@ class ResponseAnalystTests(unittest.TestCase):
             evidence.snippet,
         )
 
+    def test_pdf_compacted_quote_is_grounded_to_exact_source_offsets(self) -> None:
+        source = public_source(
+            "pdf",
+            (
+                "Attachment: comment letter\n"
+                "BISshouldclarifytheintendedscopeofreportableinformationand"
+                "clearlyexplaintherationale."
+            ),
+        )
+        output = ResponseViewpointOutput(
+            concerns_objections=[
+                ViewpointFinding(
+                    text="One supplied comment asks BIS to clarify reportable scope.",
+                    source_type="public_opinion",
+                    evidence=[
+                        ResponseEvidenceRef(
+                            source_id=source.id,
+                            quote=(
+                                "BIS should clarify the intended scope of reportable information "
+                                "and clearly explain the rationale."
+                            ),
+                        )
+                    ],
+                    confidence="high",
+                )
+            ]
+        )
+
+        analysis = build_response_analysis(policy_document(), [source], output)
+        claim = analysis.steps[0].claims[0]
+
+        self.assertEqual(len(claim.evidence_ids), 1)
+        evidence = analysis.evidence[0]
+        self.assertEqual(
+            source.raw_text[evidence.start_offset:evidence.end_offset],
+            evidence.snippet,
+        )
+        self.assertIn("BISshouldclarify", evidence.snippet)
+
     def test_fabricated_quote_isolated_to_finding(self) -> None:
         source = public_source("a", "Real supplied text.")
         good_source = public_source("b", "A real concern appears here.")
