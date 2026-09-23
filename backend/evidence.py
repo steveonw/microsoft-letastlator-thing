@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import html
 import re
+import unicodedata
 
 from federal_register import NormalizedChunk, NormalizedPolicyDocument
 from models import (
@@ -54,14 +56,120 @@ def _token_pattern(token: str) -> str:
     return "".join(parts)
 
 
+_TYPOGRAPHIC_EQUIVALENTS = str.maketrans(
+    {
+        "“": '"',
+        "”": '"',
+        "„": '"',
+        "‟": '"',
+        "‘": "'",
+        "’": "'",
+        "‚": "'",
+        "‛": "'",
+        "‐": "-",
+        "‑": "-",
+        "‒": "-",
+        "–": "-",
+        "—": "-",
+        "−": "-",
+    }
+)
+_HTML_ENTITY_RE = re.compile(
+    r"&(?:#[0-9]+|#x[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);"
+)
+_HTML_TAG_RE = re.compile(r"</?[A-Za-z][^>]*>")
+
+
+def _canonical_piece(value: str) -> str:
+    return (
+        unicodedata.normalize("NFKC", value)
+        .translate(_TYPOGRAPHIC_EQUIVALENTS)
+        .casefold()
+    )
+
+
+def _compact_canonical_with_spans(
+    value: str,
+) -> tuple[str, list[tuple[int, int]]]:
+    """
+    Canonicalize extraction-only formatting while retaining original offsets.
+
+    The fallback intentionally removes whitespace and HTML tags so text from
+    PDFs such as "BISshouldclarify" can match the same quoted words with normal
+    spaces. HTML entities and common typographic variants are normalized too.
+    Each canonical character maps back to its exact span in the original text.
+    """
+    chars: list[str] = []
+    spans: list[tuple[int, int]] = []
+    index = 0
+
+    def append_piece(piece: str, start: int, end: int) -> None:
+        for char in _canonical_piece(piece):
+            if char.isspace():
+                continue
+            chars.append(char)
+            spans.append((start, end))
+
+    while index < len(value):
+        if value[index] == "<":
+            tag = _HTML_TAG_RE.match(value, index)
+            if tag is not None:
+                index = tag.end()
+                continue
+
+        if value[index] == "&":
+            entity = _HTML_ENTITY_RE.match(value, index)
+            if entity is not None:
+                raw = entity.group(0)
+                decoded = html.unescape(raw)
+                if decoded != raw:
+                    append_piece(decoded, index, entity.end())
+                    index = entity.end()
+                    continue
+
+        append_piece(value[index], index, index + 1)
+        index += 1
+
+    return "".join(chars), spans
+
+
+def _find_compact_extraction_match(text: str, query: str) -> tuple[int, int]:
+    """
+    Conservative fallback for PDF/HTML extraction artifacts.
+
+    Because removing all whitespace is more permissive than the primary exact
+    matcher, require a reasonably long multi-word quote and a unique canonical
+    occurrence before accepting it.
+    """
+    words = re.findall(r"\w+", query, flags=re.UNICODE)
+    compact_query, _ = _compact_canonical_with_spans(query)
+    if len(words) < 4 or len(compact_query) < 24:
+        raise ValueError("query is too short for extraction-tolerant matching")
+
+    compact_text, spans = _compact_canonical_with_spans(text)
+    start = compact_text.find(compact_query)
+    if start < 0:
+        raise ValueError("canonical query not found in source text")
+
+    if compact_text.find(compact_query, start + 1) >= 0:
+        raise ValueError("canonical query is ambiguous in source text")
+
+    end_index = start + len(compact_query) - 1
+    return spans[start][0], spans[end_index][1]
+
+
 def find_quote_span(text: str, query: str) -> tuple[int, int]:
     """
-    Locate a quoted passage while tolerating narrow source-formatting changes.
+    Locate a quoted passage while preserving exact original-source offsets.
 
-    Models often flatten hard line wraps into spaces. Matching token-by-token
-    allows normal whitespace differences and Federal Register hard wraps after
-    hyphens/slashes, while keeping wording and punctuation exact. Returned
-    offsets always point into the original source text.
+    The primary matcher tolerates normal whitespace variation plus Federal
+    Register hard wraps after hyphens/slashes while keeping wording and
+    punctuation exact. If that fails, a conservative extraction fallback can
+    bridge common PDF/HTML artifacts such as missing spaces, ligatures, HTML
+    tags/entities, and typographic quote variants. The fallback requires a
+    sufficiently long multi-word quote and a unique canonical match.
+
+    Returned offsets always point into the untouched original source text.
     """
     tokens = query.split()
     if not tokens:
@@ -72,10 +180,13 @@ def find_quote_span(text: str, query: str) -> tuple[int, int]:
         flags=re.IGNORECASE,
     )
     match = pattern.search(text)
-    if match is None:
-        raise ValueError(f"query not found in source text: {query!r}")
+    if match is not None:
+        return match.start(), match.end()
 
-    return match.start(), match.end()
+    try:
+        return _find_compact_extraction_match(text, query)
+    except ValueError as exc:
+        raise ValueError(f"query not found in source text: {query!r}") from exc
 
 
 def _find_match_in_source(
