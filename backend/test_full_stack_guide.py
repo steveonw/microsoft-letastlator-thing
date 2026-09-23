@@ -36,6 +36,8 @@ class FullStackGuideTests(unittest.TestCase):
     def test_live_policy_load_becomes_authoritative_state(self) -> None:
         state = GuideState()
         state.provider.kind = "openrouter"
+        state.provider.api_key = "fake-model-key"
+        state.provider.model = "openrouter/free"
         policy_run, _ = make_rush_inputs()
         fake_document = object()
 
@@ -61,6 +63,8 @@ class FullStackGuideTests(unittest.TestCase):
     def test_live_comment_load_uses_memory_only_regulations_key(self) -> None:
         state = GuideState()
         state.provider.kind = "openrouter"
+        state.provider.api_key = "fake-model-key"
+        state.provider.model = "openrouter/free"
         state.provider.regulations_api_key = "regulations-secret"
         policy_run, response_run = make_rush_inputs()
         state.document = object()
