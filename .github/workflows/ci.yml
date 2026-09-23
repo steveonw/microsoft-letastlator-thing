@@ -129,6 +129,37 @@ jobs:
           print("Offline Guided Mode state verified.")
           PY
 
+      - name: Verify offline Rush Mode
+        run: |
+          python backend/run_rush_analysis.py run \
+            --offline \
+            --output /tmp/policytrace-rush.json
+
+      - name: Validate offline Rush Mode state
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(
+              Path("/tmp/policytrace-rush.json").read_text(encoding="utf-8")
+          )
+          assert data["mode"] == "rush"
+          assert data["current_step_id"] is None
+          assert data["final_review_status"] == "in_review"
+          assert data["steps"][-1]["kind"] == "verification"
+          assert all(
+              step["human_review"]["status"] == "not_reviewed"
+              for step in data["steps"]
+          )
+          kinds = {step["kind"] for step in data["steps"]}
+          assert "policy_understanding" in kinds
+          assert "public_response" in kinds
+          assert "themes_viewpoints" in kinds
+          assert "verification" in kinds
+          print("Offline Rush Mode final-review gate verified.")
+          PY
+
       - name: Validate offline Claim Verifier output
         run: |
           python - <<'PY'

@@ -282,7 +282,7 @@ PolicyTrace should help analysts move faster while keeping sources visible, unce
 
 ## Current backend milestone
 
-Chunks 1–7 now have backend implementations:
+Chunks 1–8 now have backend implementations:
 
 1. Shared analysis contract
 2. Federal Register ingestion
@@ -291,6 +291,7 @@ Chunks 1–7 now have backend implementations:
 5. Response & Viewpoint Analyst
 6. Claim Verifier
 7. Guided Mode human review loop
+8. Rush Mode + mandatory final review
 
 The Claim Verifier can be run against an existing AnalysisRun:
 
@@ -316,3 +317,44 @@ python backend/run_guided_review.py next --input analysis.json
 ```
 
 The demo frontend mirrors these review controls and persists edits/notes/progress locally for the browser demo.
+
+
+## Rush Mode
+
+Chunk 8 can run the shared policy-analysis, response-analysis, and claim-verification pipeline automatically while preserving every intermediate step. Automation stops with `final_review_status=in_review`; it never approves the result on its own.
+
+Offline demo:
+
+```bash
+python backend/run_rush_analysis.py run --offline
+```
+
+Live OpenRouter example:
+
+```bash
+python backend/run_rush_analysis.py run --provider openrouter
+```
+
+A reviewer can open any saved section without losing the Rush draft:
+
+```bash
+python backend/run_rush_analysis.py open \
+  --input data/rush/2024-20529.chunk8-analysis.json \
+  --step-id step-major-provisions
+```
+
+Once a section is open, the existing Guided Mode edit, flag, clarify, and verify actions can be used against that same JSON. Return to the mandatory final-review gate with:
+
+```bash
+python backend/run_rush_analysis.py final \
+  --input data/rush/2024-20529.chunk8-analysis.json
+```
+
+Final approval is a separate explicit human action:
+
+```bash
+python backend/run_rush_analysis.py approve \
+  --input data/rush/2024-20529.chunk8-analysis.json
+```
+
+Selective section re-analysis and dependency refresh are handled in Chunk 9.
