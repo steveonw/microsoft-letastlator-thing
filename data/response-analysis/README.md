@@ -24,7 +24,7 @@ Each finding must declare one response source type:
 - `stakeholder_claim`
 - `factual_reporting`
 
-A finding cannot blend those categories. Every finding must cite exact quotes and source IDs. Normal Python code rejects fabricated quotes, missing sources, and source-type mismatches before an `AnalysisRun` is accepted.
+A finding cannot blend those categories. Every finding must cite exact quotes and source IDs. Normal Python code rejects fabricated quotes, missing sources, and source-type mismatches before an `AnalysisRun` is accepted. Quote grounding first uses strict whitespace-tolerant matching, then a conservative extraction fallback for long, unique quotes when PDF/HTML extraction has collapsed spaces, preserved markup/entities, or changed typographic quote characters. Stored evidence still uses exact offsets into the original source text.
 
 Response claims remain:
 
