@@ -547,11 +547,20 @@ class GuideState:
         self.analysis = return_to_rush_final_review(self.analysis)
         return self.analysis
 
-    def rush_approve(self) -> AnalysisRun:
-        self.analysis = approve_rush_final_review(self.analysis)
+    def rush_approve(self, acknowledge_unreviewed: bool = False) -> AnalysisRun:
+        self.analysis = approve_rush_final_review(
+            self.analysis,
+            acknowledge_unreviewed=acknowledge_unreviewed,
+        )
         return self.analysis
 
-    def reanalyze(self, step_id: str, text: str) -> AnalysisRun:
+    def reanalyze(
+        self,
+        step_id: str,
+        text: str,
+        *,
+        human_edited: bool = True,
+    ) -> AnalysisRun:
         replacement_text = text.strip()
         if not replacement_text:
             raise ValueError("replacement claim text must not be empty")
@@ -566,7 +575,13 @@ class GuideState:
             replacement.claims[0].verification_note = (
                 "Guide re-analysis changed this claim; re-verification is required."
             )
-            return ReanalysisResult(step=replacement)
+            edited = (
+                (replacement.claims[0].id,) if human_edited else ()
+            )
+            return ReanalysisResult(
+                step=replacement,
+                human_edited_claim_ids=edited,
+            )
 
         self.analysis = reanalyze_step(self.analysis, step_id, regenerate)
         return self.analysis
@@ -729,11 +744,14 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/rush/final":
                 result = STATE.rush_final()
             elif self.path == "/api/rush/approve":
-                result = STATE.rush_approve()
+                result = STATE.rush_approve(
+                    bool(body.get("acknowledge_unreviewed", False))
+                )
             elif self.path == "/api/reanalysis/step":
                 result = STATE.reanalyze(
                     str(body.get("step_id", "")),
                     str(body.get("text", "")),
+                    human_edited=bool(body.get("human_edited", True)),
                 )
             elif self.path == "/api/reanalysis/refresh":
                 result = STATE.refresh(str(body.get("step_id", "")))

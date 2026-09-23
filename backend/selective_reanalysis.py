@@ -10,6 +10,7 @@ from models import (
     Evidence,
     HumanReview,
     HumanReviewStatus,
+    InformationType,
     StepKind,
     StepStatus,
 )
@@ -21,6 +22,15 @@ class ReanalysisResult:
 
     step: AnalysisStep
     evidence: tuple[Evidence, ...] = field(default_factory=tuple)
+    human_edited_claim_ids: tuple[str, ...] = field(default_factory=tuple)
+    """
+    Claims in `step` whose wording a human wrote, not the model.
+
+    Listed IDs keep their pre-edit wording in `original_text`, are retyped as
+    human_interpretation, and are recorded in the step's edited_claim_ids so the
+    final brief can show exactly which words a person changed. Leave this empty
+    for machine regeneration: an AI rewrite is still ai_interpretation.
+    """
 
 
 StepReanalyzer = Callable[[AnalysisRun, AnalysisStep], ReanalysisResult]
@@ -108,6 +118,47 @@ def _merge_reanalysis_evidence(
         evidence_by_id[copied.id] = copied
 
 
+def _record_human_edits(
+    original: AnalysisStep,
+    replacement: AnalysisStep,
+    human_edited_claim_ids: tuple[str, ...],
+) -> None:
+    """
+    Mark human-written claim wording so the audit trail survives re-analysis.
+
+    Guided mode already does this in edit_current_claim. Re-analysis has to do
+    the same, or the same human edit is audited in one mode and anonymous in
+    the other.
+    """
+    if not human_edited_claim_ids:
+        return
+
+    previous = {claim.id: claim for claim in original.claims}
+    edited: list[str] = []
+
+    for claim_id in human_edited_claim_ids:
+        claim = next(
+            (item for item in replacement.claims if item.id == claim_id),
+            None,
+        )
+        if claim is None:
+            raise ValueError(
+                f"human-edited claim {claim_id!r} is not part of the replacement step"
+            )
+
+        if claim.original_text is None:
+            prior = previous.get(claim_id)
+            claim.original_text = prior.text if prior is not None else claim.text
+
+        claim.information_type = InformationType.HUMAN_INTERPRETATION
+        if claim_id not in edited:
+            edited.append(claim_id)
+
+    for claim_id in edited:
+        if claim_id not in replacement.human_review.edited_claim_ids:
+            replacement.human_review.edited_claim_ids.append(claim_id)
+
+
 def _replace_step(
     analysis: AnalysisRun,
     *,
@@ -137,6 +188,9 @@ def _replace_step(
             f"Re-analysis generated from step version {original_version}.",
         ],
     )
+    # After the fresh HumanReview is attached, or the edit trail is discarded
+    # along with the old one.
+    _record_human_edits(original, replacement, result.human_edited_claim_ids)
     analysis.steps[index] = replacement
 
 
@@ -247,13 +301,20 @@ def _brief_text(analysis: AnalysisRun, steps: list[AnalysisStep]) -> str:
 
         for claim in step.claims:
             evidence = ", ".join(claim.evidence_ids) if claim.evidence_ids else "none"
+            human_edited = (
+                claim.id in step.human_review.edited_claim_ids
+                or claim.information_type == InformationType.HUMAN_INTERPRETATION
+            )
+            origin = "human-edited" if human_edited else "AI-generated"
             lines.extend(
                 [
-                    f"- [{claim.id}] {claim.text}",
+                    f"- [{claim.id}] ({origin}) {claim.text}",
                     f"  Verification: {claim.verification_status.value}",
                     f"  Evidence: {evidence}",
                 ]
             )
+            if human_edited and claim.original_text:
+                lines.append(f"  Original AI wording: {claim.original_text}")
 
     return "\n".join(lines)
 

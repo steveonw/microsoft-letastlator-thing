@@ -5,6 +5,7 @@ import html
 import json
 import os
 import re
+import unicodedata
 import warnings
 from datetime import datetime
 from html.parser import HTMLParser
@@ -43,7 +44,13 @@ _ATTACHMENT_FORMAT_PRIORITY = {
     "docx": 3,
 }
 
-_EMAIL_RE = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w.-])")
+# The local part may not start or end on a separator, and the domain must end
+# on a letter. A trailing "." is sentence punctuation, not part of the address,
+# so the lookahead must not reject it -- "email me at a@b.com." is the common
+# case and an earlier (?![\w.-]) let it through unredacted.
+_EMAIL_RE = re.compile(
+    r"(?<![\w.+-])[\w+-]+(?:[.][\w+-]+)*@[\w-]+(?:[.][\w-]+)*\.[A-Za-z]{2,}(?![\w@])"
+)
 _PHONE_RE = re.compile(
     r"(?<!\d)(?:\+?1[ .-]?)?(?:\(?\d{3}\)?[ .-]?)\d{3}[ .-]?\d{4}(?!\d)"
 )
@@ -269,6 +276,26 @@ def _extract_docx_text(payload: bytes) -> str:
     return re.sub(r"\n{3,}", "\n\n", "".join(parts)).strip()
 
 
+MIN_SPACE_RATIO = 0.08
+"""
+Minimum spaces-per-character for extracted text to be usable.
+
+Ordinary English prose runs about 0.16. Some PDFs extract with word spacing
+dropped entirely -- "byemailingai_reporting@bis.doc.govonaquarterlybasis" --
+which silently defeats both PII redaction and quote matching, because neither
+a regex nor a model's quote can find word boundaries that are not there.
+Nothing downstream can repair that, so it has to be visible.
+"""
+
+
+def extraction_is_degraded(text: str) -> bool:
+    """True when extracted text lost its word spacing and cannot be trusted."""
+    stripped = text.strip()
+    if len(stripped) < 200:
+        return False
+    return (stripped.count(" ") / len(stripped)) < MIN_SPACE_RATIO
+
+
 def _extract_attachment_payload(payload: bytes, format_name: str) -> str:
     fmt = format_name.lower()
     if fmt in {"txt", "text"}:
@@ -292,6 +319,11 @@ def _extract_attachment_payload(payload: bytes, format_name: str) -> str:
 
     text = html.unescape(text)
     text = text.replace("\x00", "")
+    # PDF extraction emits typographic ligatures: "deﬁned" is one character,
+    # not "fi". NFKC decomposes them so the stored text matches what a model
+    # writes when it quotes the passage. Done here, before offsets exist, so
+    # stored offsets stay correct.
+    text = unicodedata.normalize("NFKC", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     if len(text) > MAX_ATTACHMENT_CHARS:
@@ -351,8 +383,24 @@ def _combine_comment_and_attachments(
         parts.append(clean_comment)
 
     for title, text in attachment_texts:
-        if text.strip():
-            parts.append(f"Attachment: {title}\n{text.strip()}")
+        if not text.strip():
+            continue
+        body = text.strip()
+        if extraction_is_degraded(body):
+            # Keep the text -- a human can still read it -- but say plainly
+            # that automated redaction and citation cannot be relied on here.
+            warnings.warn(
+                f"attachment {title!r} extracted without word spacing; "
+                "PII redaction and quote matching are unreliable for it",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            body = (
+                "[PolicyTrace: this attachment extracted without word spacing. "
+                "Automated redaction and citation matching are unreliable for "
+                "it and it needs human review.]\n" + body
+            )
+        parts.append(f"Attachment: {title}\n{body}")
 
     if parts:
         return "\n\n".join(parts)

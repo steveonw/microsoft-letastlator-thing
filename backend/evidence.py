@@ -47,6 +47,29 @@ def source_from_federal_register(document: NormalizedPolicyDocument) -> Source:
     )
 
 
+# Characters that mean the same thing but are written differently in the
+# source and in model output. Federal Register plain text uses TeX-style
+# ``quotes'' and PDF extraction yields curly quotes and en/em dashes, while a
+# model quoting that text writes plain ASCII. Treating each group as
+# interchangeable keeps matching exact on wording while ignoring typography.
+_QUOTE_VARIANTS = "\"\u201c\u201d\u201e\u201f\u00ab\u00bb"
+_APOSTROPHE_VARIANTS = "'\u2018\u2019\u201a\u201b\u00b4`"
+_DASH_VARIANTS = "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212"
+
+_CHAR_CLASSES: dict[str, str] = {}
+for _group in (_QUOTE_VARIANTS, _APOSTROPHE_VARIANTS, _DASH_VARIANTS):
+    _class = f"[{re.escape(_group)}]"
+    for _char in _group:
+        _CHAR_CLASSES[_char] = _class
+
+# Federal Register plain text writes double quotes as the TeX pairs ``like
+# this'', which are two characters, so a single character class cannot cover
+# them. Any double-quote variant in the query matches either form.
+_DOUBLE_QUOTE_PATTERN = f"(?:[{re.escape(_QUOTE_VARIANTS)}]|``|'')"
+for _char in _QUOTE_VARIANTS:
+    _CHAR_CLASSES[_char] = _DOUBLE_QUOTE_PATTERN
+
+
 def _token_pattern(token: str) -> str:
     """
     Match one query token while tolerating Federal Register hard wraps.
@@ -54,12 +77,13 @@ def _token_pattern(token: str) -> str:
     Federal Register plain text can insert a newline after punctuation inside a
     token, for example "floating-\npoint" or "OP/\ns". Allow whitespace only
     after hyphens and slashes; all characters and punctuation remain otherwise
-    exact.
+    exact, except that quotes, apostrophes and dashes match any variant of
+    themselves.
     """
     parts: list[str] = []
     for char in token:
-        parts.append(re.escape(char))
-        if char in {"-", "/"}:
+        parts.append(_CHAR_CLASSES.get(char, re.escape(char)))
+        if char in _DASH_VARIANTS or char == "/":
             parts.append(r"\s*")
     return "".join(parts)
 

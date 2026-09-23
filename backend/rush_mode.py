@@ -143,15 +143,55 @@ def return_to_rush_final_review(analysis: AnalysisRun) -> AnalysisRun:
     return _validated_copy(reviewed)
 
 
-def approve_rush_final_review(analysis: AnalysisRun) -> AnalysisRun:
+APPROVED_REVIEW_STATUSES = frozenset(
+    {HumanReviewStatus.REVIEWED, HumanReviewStatus.APPROVED}
+)
+
+
+def unreviewed_step_ids(analysis: AnalysisRun) -> list[str]:
+    """Steps a human has not yet reviewed or approved."""
+    return [
+        step.id
+        for step in analysis.steps
+        if step.human_review.status not in APPROVED_REVIEW_STATUSES
+    ]
+
+
+def approve_rush_final_review(
+    analysis: AnalysisRun,
+    *,
+    acknowledge_unreviewed: bool = False,
+) -> AnalysisRun:
     """
     Explicit human approval gate. This is never called by run_rush_analysis.
+
+    Approval requires every step to have been reviewed. Rush Mode exists to
+    save time, not to let AI findings reach a leadership brief unexamined, so
+    approving unreviewed work takes an explicit acknowledgement that is then
+    recorded on the run.
     """
     reviewed = _validated_copy(analysis)
     if reviewed.mode != AnalysisMode.RUSH:
         raise ValueError("analysis is not in rush mode")
     if reviewed.final_review_status != HumanReviewStatus.IN_REVIEW:
         raise ValueError("rush analysis is not awaiting final human review")
+
+    outstanding = unreviewed_step_ids(reviewed)
+    if outstanding and not acknowledge_unreviewed:
+        raise ValueError(
+            "cannot approve while steps are unreviewed: "
+            f"{sorted(outstanding)}. Review them, or approve with "
+            "acknowledge_unreviewed=True to record the override."
+        )
+
+    if outstanding:
+        override = (
+            "Final approval was recorded while this section was still "
+            "unreviewed (acknowledged override)."
+        )
+        for step in reviewed.steps:
+            if step.id in set(outstanding):
+                step.human_review.notes.append(override)
 
     reviewed.current_step_id = None
     reviewed.final_review_status = HumanReviewStatus.APPROVED

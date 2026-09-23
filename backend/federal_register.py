@@ -90,6 +90,11 @@ def _plain_text(payload: str) -> str:
     payload = html.unescape(payload)
     payload = payload.replace("\r\n", "\n").replace("\r", "\n")
     payload = payload.replace("\u00a0", " ")
+    # Federal Register plain text encodes superscripts as "10[supcaret]26".
+    # A model reading that writes "10^26", so the marker has to become a caret
+    # here or every citation to a computational-threshold definition -- the
+    # most citation-worthy facts in an AI rule -- fails to match.
+    payload = payload.replace("[supcaret]", "^")
     payload = re.sub(r"[ \t]+\n", "\n", payload)
     payload = re.sub(r"\n{3,}", "\n\n", payload)
     return payload.strip()
