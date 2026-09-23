@@ -6,6 +6,7 @@ from claim_verifier import (
     CLAIM_VERIFIER_SYSTEM_PROMPT,
     build_claim_verification_prompt,
     citation_integrity_problem,
+    parse_claim_verification,
     verify_analysis,
 )
 from models import (
@@ -155,6 +156,68 @@ class ClaimVerifierTests(unittest.TestCase):
             "The source describes a quarterly notification requirement.",
             claim.verification_note,
         )
+
+    def test_verifier_parser_recovers_json_after_prose_prefix(self) -> None:
+        result = parse_claim_verification(
+            'Sure! Here is the JSON:\n'
+            '{"status":"supported","explanation":"Direct support.",'
+            '"narrower_wording":null}'
+        )
+
+        self.assertEqual(result.status, VerificationStatus.SUPPORTED)
+        self.assertEqual(result.explanation, "Direct support.")
+
+    def test_unparseable_reply_does_not_abort_remaining_claims(self) -> None:
+        analysis = analysis_with_claim()
+        second = analysis.steps[0].claims[0].model_copy(deep=True)
+        second.id = "claim-2"
+        second.text = "A second claim with the same grounded evidence."
+        analysis.steps[0].claims.append(second)
+
+        calls = 0
+
+        def model_call(system_prompt: str, user_prompt: str) -> str:
+            nonlocal calls
+            del system_prompt, user_prompt
+            calls += 1
+            if calls == 1:
+                return "Sure, but I forgot to include JSON."
+            return json.dumps(
+                {
+                    "status": "supported",
+                    "explanation": "The second claim is supported.",
+                    "narrower_wording": None,
+                }
+            )
+
+        verified = verify_analysis(analysis, model_call)
+        first, second = verified.steps[0].claims
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(
+            first.verification_status,
+            VerificationStatus.NEEDS_HUMAN_REVIEW,
+        )
+        self.assertIn("unparseable or schema-invalid", first.verification_note)
+        self.assertEqual(second.verification_status, VerificationStatus.SUPPORTED)
+        self.assertIn("supported: 1", verified.steps[-1].ai_output)
+        self.assertIn("needs_human_review: 1", verified.steps[-1].ai_output)
+
+    def test_schema_invalid_reply_does_not_abort_batch(self) -> None:
+        analysis = analysis_with_claim()
+
+        def model_call(system_prompt: str, user_prompt: str) -> str:
+            del system_prompt, user_prompt
+            return '{"status":"supported","narrower_wording":null}'
+
+        verified = verify_analysis(analysis, model_call)
+        claim = verified.steps[0].claims[0]
+
+        self.assertEqual(
+            claim.verification_status,
+            VerificationStatus.NEEDS_HUMAN_REVIEW,
+        )
+        self.assertIn("schema-invalid", claim.verification_note)
 
     def test_no_evidence_short_circuits_model_and_stays_human_review(self) -> None:
         analysis = analysis_with_claim(evidence_ids=[])

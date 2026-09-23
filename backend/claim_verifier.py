@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from model_json import extract_json_value
 from models import (
     AnalysisRun,
     AnalysisStep,
@@ -144,6 +145,29 @@ def build_claim_verification_prompt(
     )
 
 
+def parse_claim_verification(raw: str) -> ClaimVerificationOutput:
+    """
+    Recover and validate one verifier response without trusting provider formatting.
+
+    Providers may prepend harmless prose even when JSON was requested. Extract one
+    JSON value first, then validate the verifier contract. Callers decide whether a
+    malformed response should halt or be routed to human review.
+    """
+    normalized = extract_json_value(raw)
+    return ClaimVerificationOutput.model_validate_json(normalized)
+
+
+def _unparseable_verifier_note(exc: Exception) -> str:
+    detail = str(exc).splitlines()[0].strip()
+    if len(detail) > 240:
+        detail = detail[:237] + "..."
+    return (
+        "Semantic verification could not be completed because the verifier "
+        f"returned an unparseable or schema-invalid response: {detail}. "
+        "The claim remains for human review; no verification status was inferred."
+    )
+
+
 def _verification_note(result: ClaimVerificationOutput) -> str:
     note = f"Semantic verification: {result.explanation}"
     if result.narrower_wording:
@@ -217,7 +241,13 @@ def verify_analysis(
                 CLAIM_VERIFIER_SYSTEM_PROMPT,
                 build_claim_verification_prompt(verified, claim),
             )
-            result = ClaimVerificationOutput.model_validate_json(raw)
+            try:
+                result = parse_claim_verification(raw)
+            except (ValueError, ValidationError) as exc:
+                claim.verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
+                claim.verification_note = _unparseable_verifier_note(exc)
+                continue
+
             claim.verification_status = result.status
             claim.verification_note = _verification_note(result)
 

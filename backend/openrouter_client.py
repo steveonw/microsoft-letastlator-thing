@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+
+from model_json import extract_json_value, strip_json_fence
 from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -23,52 +25,18 @@ def _completion_url(base_url: str) -> str:
 
 
 def _strip_json_fence(value: str) -> str:
-    text = value.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines:
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    return text
+    return strip_json_fence(value)
 
 
 def _extract_json(value: str) -> str:
-    """
-    Return one valid JSON value from model output.
-
-    Some routed models prepend prose or reasoning tags even when JSON mode was
-    requested. First accept clean JSON, then fall back to decoding from the first
-    JSON object/array marker. The returned string is normalized valid JSON.
-    """
-    text = _strip_json_fence(value)
-
     try:
-        parsed = json.loads(text)
-        return json.dumps(parsed, ensure_ascii=False)
-    except json.JSONDecodeError:
-        pass
-
-    decoder = json.JSONDecoder()
-    candidates = [
-        index
-        for marker in ("{", "[")
-        if (index := text.find(marker)) >= 0
-    ]
-
-    for start in sorted(candidates):
-        try:
-            parsed, _ = decoder.raw_decode(text[start:])
-            return json.dumps(parsed, ensure_ascii=False)
-        except json.JSONDecodeError:
-            continue
-
-    preview = text[:180].replace("\n", "\\n")
-    raise ValueError(
-        "OpenRouter model did not return extractable JSON. "
-        f"Response began with: {preview!r}"
-    )
+        return extract_json_value(value)
+    except ValueError as exc:
+        message = str(exc).replace(
+            "model did not return extractable JSON.",
+            "OpenRouter model did not return extractable JSON.",
+        )
+        raise ValueError(message) from exc
 
 
 @dataclass(frozen=True)
