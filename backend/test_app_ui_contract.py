@@ -256,6 +256,29 @@ class ProviderConfigurationTests(unittest.TestCase):
         self.assertTrue(status["model"])
         self.assertTrue(status["base_url"])
 
+    def test_failed_provider_save_does_not_destroy_working_credentials(self) -> None:
+        state = GuideState()
+        state.provider.configure(
+            {
+                "kind": "openrouter",
+                "api_key": "working-key",
+                "regulations_api_key": "regs-key",
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "API key is required"):
+            state.provider.configure(
+                {
+                    "kind": "openrouter",
+                    "api_key": "",
+                    "regulations_api_key": "regs-key",
+                }
+            )
+
+        self.assertEqual(state.provider.kind, "openrouter")
+        self.assertEqual(state.provider.api_key, "working-key")
+        self.assertEqual(state.provider.regulations_api_key, "regs-key")
+
 
 class GuidedNavigationAndInvalidationTests(unittest.TestCase):
     def test_explicit_navigation_controls_which_section_next_accepts(self) -> None:
@@ -583,3 +606,33 @@ class HiddenVerificationRefreshRegressionTests(unittest.TestCase):
         self.assertTrue(
             any(step.kind.value == "draft_brief" for step in briefed.steps)
         )
+
+
+class LiveSourceModeChoiceContractTests(unittest.TestCase):
+    def test_live_source_ui_keeps_mode_choice_visible_until_start(self) -> None:
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "Live policy loaded. Choose Guided or Rush",
+            source,
+        )
+        self.assertIn(
+            "Live comments analyzed. Now choose Guided or Rush.",
+            source,
+        )
+        self.assertIn(
+            'byId("mode-pill").textContent = "ready to choose"',
+            source,
+        )
+        self.assertNotIn(
+            "run = updated;\n    selectedStepId = null;\n    selectedClaimId = null;\n    render();",
+            source,
+        )
+
+    def test_frontend_has_one_write_request_at_a_time_guard(self) -> None:
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn("apiRequestInFlight", source)
+        self.assertIn("still working on the previous request", source)

@@ -15,6 +15,7 @@ let selectedStepId = null;
 let selectedClaimId = null;
 let editingClaimId = null;
 let flaggingClaimId = null;
+let apiRequestInFlight = false;
 
 const byId = (id) => document.getElementById(id);
 
@@ -86,6 +87,18 @@ function banner(message, kind = "info") {
 }
 
 async function api(path, payload) {
+  const isWrite = payload !== undefined;
+  if (isWrite && apiRequestInFlight) {
+    banner("PolicyTrace is still working on the previous request. Please wait.", "info");
+    return null;
+  }
+
+  if (isWrite) {
+    apiRequestInFlight = true;
+    document.body.classList.add("busy");
+    byId("stage")?.setAttribute("aria-busy", "true");
+  }
+
   try {
     const response = await fetch(`${API}${path}`, {
       method: payload === undefined ? "GET" : "POST",
@@ -106,6 +119,12 @@ async function api(path, payload) {
   } catch (error) {
     banner(`Cannot reach the server: ${error.message}`, "refused");
     return null;
+  } finally {
+    if (isWrite) {
+      apiRequestInFlight = false;
+      document.body.classList.remove("busy");
+      byId("stage")?.removeAttribute("aria-busy");
+    }
   }
 }
 
@@ -199,7 +218,10 @@ function render() {
   const started = Boolean(run);
   byId("start-screen").hidden = started;
   byId("workspace").hidden = !started;
-  if (!started) return;
+  if (!started) {
+    byId("mode-pill").textContent = "not started";
+    return;
+  }
 
   byId("mode-pill").textContent =
     run.mode === "rush" ? "analyze then review" : "section by section";
@@ -785,10 +807,16 @@ async function loadPolicy() {
     document_number: documentNumber,
   });
   if (updated) {
-    run = updated;
+    run = null;
     selectedStepId = null;
     selectedClaimId = null;
-    render();
+    editingClaimId = null;
+    flaggingClaimId = null;
+    const title = updated.policy?.title || documentNumber;
+    byId("source-state").textContent =
+      `Policy ready: ${title}. Load public comments if you want them, then choose a review mode above.`;
+    byId("mode-pill").textContent = "ready to choose";
+    banner("Live policy loaded. Choose Guided or Rush when your sources are ready.", "info");
   }
 }
 
@@ -804,8 +832,16 @@ async function loadComments() {
     max_comments: Number(byId("max-comments").value) || 12,
   });
   if (updated) {
-    run = updated;
-    render();
+    run = null;
+    selectedStepId = null;
+    selectedClaimId = null;
+    editingClaimId = null;
+    flaggingClaimId = null;
+    const count = Number(byId("max-comments").value) || 12;
+    byId("source-state").textContent =
+      `Policy and public comments are ready (requested up to ${count}). Choose Guided or Rush above.`;
+    byId("mode-pill").textContent = "ready to choose";
+    banner("Live comments analyzed. Now choose Guided or Rush.", "info");
   }
 }
 
@@ -835,8 +871,9 @@ async function showRecentErrors() {
     ? combined.map((entry) => {
         const route = entry.path ? ` ${entry.method || ""} ${entry.path}` : "";
         const status = entry.status ? ` [${entry.status}]` : "";
+        const type = entry.error_type ? ` ${entry.error_type}` : "";
         return (
-          `${entry.timestamp || ""}  ${entry.error_id || "unknown"}${status}${route}\n` +
+          `${entry.timestamp || ""}  ${entry.error_id || "unknown"}${status}${type}${route}\n` +
           `${entry.message || ""}`
         );
       })

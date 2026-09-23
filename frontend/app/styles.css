@@ -239,3 +239,22 @@ button.ghost { background: transparent; }
   padding: 12px;
   font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+
+.source-state {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f9fb;
+  font-size: 13px;
+}
+
+.busy {
+  cursor: progress;
+}
+
+.busy button {
+  cursor: progress;
+  opacity: 0.72;
+}

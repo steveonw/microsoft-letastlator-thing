@@ -66,6 +66,7 @@ HOST = "127.0.0.1"
 PORT = 8777
 ERROR_LOG_PATH = ROOT / ".policytrace" / "errors.jsonl"
 _ERROR_LOG_LOCK = threading.Lock()
+_STATE_WRITE_LOCK = threading.Lock()
 
 POLICY_TEXT = (
     "Section 1 requires covered providers to maintain an annual compliance record. "
@@ -306,33 +307,42 @@ class RuntimeProvider:
         if kind not in {"deterministic", "openrouter", "openai", "foundry"}:
             raise ValueError("provider must be deterministic, openrouter, openai, or foundry")
 
-        self.kind = kind
-        self.model = str(data.get("model", "")).strip()
-        self.base_url = str(data.get("base_url", "")).strip()
-        self.endpoint = str(data.get("endpoint", "")).strip()
-        self.api_key = str(data.get("api_key", "")).strip()
-        self.bearer_token = str(data.get("bearer_token", "")).strip()
-        self.regulations_api_key = str(data.get("regulations_api_key", "")).strip()
+        model = str(data.get("model", "")).strip()
+        base_url = str(data.get("base_url", "")).strip()
+        endpoint = str(data.get("endpoint", "")).strip()
+        api_key = str(data.get("api_key", "")).strip()
+        bearer_token = str(data.get("bearer_token", "")).strip()
+        regulations_api_key = str(data.get("regulations_api_key", "")).strip()
 
         if kind == "openrouter":
-            if not self.api_key:
+            if not api_key:
                 raise ValueError("OpenRouter API key is required")
-            if not self.model:
-                self.model = DEFAULT_OPENROUTER_MODEL
-            if not self.base_url:
-                self.base_url = DEFAULT_OPENROUTER_BASE_URL
+            if not model:
+                model = DEFAULT_OPENROUTER_MODEL
+            if not base_url:
+                base_url = DEFAULT_OPENROUTER_BASE_URL
         elif kind == "openai":
-            if not self.api_key:
+            if not api_key:
                 raise ValueError("OpenAI API key is required")
-            if not self.model:
+            if not model:
                 raise ValueError("OpenAI model is required")
         elif kind == "foundry":
-            if not self.endpoint:
+            if not endpoint:
                 raise ValueError("Foundry endpoint is required")
-            if not self.model:
+            if not model:
                 raise ValueError("Foundry model is required")
-            if bool(self.api_key) == bool(self.bearer_token):
+            if bool(api_key) == bool(bearer_token):
                 raise ValueError("Foundry requires exactly one API key or bearer token")
+
+        # Commit the new provider configuration only after every check passes.
+        # A typo or blank credential must not destroy a working in-memory setup.
+        self.kind = kind
+        self.model = model
+        self.base_url = base_url
+        self.endpoint = endpoint
+        self.api_key = api_key
+        self.bearer_token = bearer_token
+        self.regulations_api_key = regulations_api_key
 
         return self.status()
 
@@ -931,6 +941,20 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self) -> None:
+        if not _STATE_WRITE_LOCK.acquire(blocking=False):
+            self._send_error(
+                409,
+                "Another PolicyTrace operation is still running. Wait for it to finish before starting another.",
+                error_type="Busy",
+            )
+            return
+
+        try:
+            self._do_post_locked()
+        finally:
+            _STATE_WRITE_LOCK.release()
+
+    def _do_post_locked(self) -> None:
         try:
             body = self._body_json()
             if self.path == "/api/provider":
