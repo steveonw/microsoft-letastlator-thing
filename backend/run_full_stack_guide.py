@@ -45,7 +45,9 @@ from policy_interpreter import run_policy_interpreter
 from response_sources import (
     CommentFetchError,
     CommentFetchReport,
+    extraction_is_degraded,
     fetch_comments_for_docket_with_report,
+    is_attachment_placeholder,
     source_from_response_record,
 )
 from response_viewpoint_analyst import run_response_viewpoint_analyst
@@ -458,6 +460,7 @@ class GuideState:
         self.document = document
         self.policy_analysis = analysis
         self.response_analysis = None
+        self.last_comment_fetch_report = None
         self.analysis = AnalysisRun.model_validate(
             analysis.model_dump(mode="python")
         )
@@ -522,6 +525,109 @@ class GuideState:
             response_analysis,
         )
         return self.analysis
+
+    def comment_corpus_status(self) -> dict[str, Any]:
+        report = self.last_comment_fetch_report
+        response_sources = (
+            []
+            if self.response_analysis is None
+            else [
+                source
+                for source in self.response_analysis.sources
+                if source.information_type
+                in {
+                    InformationType.PUBLIC_OPINION,
+                    InformationType.STAKEHOLDER_CLAIM,
+                    InformationType.FACTUAL_REPORTING,
+                }
+            ]
+        )
+        usable_sources = [
+            source
+            for source in response_sources
+            if source.raw_text and not is_attachment_placeholder(source.raw_text)
+        ]
+        cluster_ids = {
+            source.duplicate_cluster_id or source.id
+            for source in usable_sources
+        }
+        source_type_counts: dict[str, int] = {}
+        for source in usable_sources:
+            key = source.information_type.value
+            source_type_counts[key] = source_type_counts.get(key, 0) + 1
+
+        failures = [] if report is None else [
+            failure.model_dump(mode="json") for failure in report.failures
+        ]
+        retrieved_count = (
+            len(response_sources)
+            if report is None
+            else report.retrieved_count
+        )
+        unusable_count = (
+            len(response_sources) - len(usable_sources)
+            if report is None
+            else report.unusable_count
+        )
+
+        return {
+            "available": bool(report or response_sources),
+            "docket_id": None if report is None else report.docket_id,
+            "requested_count": None if report is None else report.requested_count,
+            "source_document_count": (
+                None if report is None else report.source_document_count
+            ),
+            "observed_candidate_count": (
+                None if report is None else report.observed_candidate_count
+            ),
+            "attempted_count": None if report is None else report.attempted_count,
+            "retrieved_count": retrieved_count,
+            "failed_retrieval_count": len(failures),
+            "unusable_retrieval_count": unusable_count,
+            "failures": failures,
+            "analyzed_source_count": len(usable_sources),
+            "exact_text_cluster_count": len(cluster_ids),
+            "source_type_counts": source_type_counts,
+            "pii_redacted_count": sum(
+                source.pii_redaction_status == PiiRedactionStatus.REDACTED
+                for source in usable_sources
+            ),
+            "degraded_source_count": sum(
+                bool(source.raw_text) and extraction_is_degraded(source.raw_text or "")
+                for source in usable_sources
+            ),
+            "representativeness_warning": (
+                "These materials are not a representative sample of the general "
+                "public and must not be generalized to population-wide opinion."
+            ),
+        }
+
+    def _corpus_brief_text(self) -> str | None:
+        status = self.comment_corpus_status()
+        if not status["available"]:
+            return None
+
+        requested = status["requested_count"]
+        requested_text = "unknown" if requested is None else str(requested)
+        source_types = ", ".join(
+            f"{key}={value}"
+            for key, value in sorted(status["source_type_counts"].items())
+        ) or "none"
+
+        lines = [
+            "## Corpus limits",
+            f"- Requested up to: {requested_text} comments",
+            f"- Retrieved: {status['retrieved_count']}",
+            f"- Analyzed source records: {status['analyzed_source_count']}",
+            f"- Exact-text clusters: {status['exact_text_cluster_count']}",
+            f"- Retrieval failures: {status['failed_retrieval_count']}",
+            f"- Unusable retrieved records: {status['unusable_retrieval_count']}",
+            f"- PII-pattern redactions: {status['pii_redacted_count']} source records",
+            f"- Degraded extraction: {status['degraded_source_count']} source records",
+            f"- Source types: {source_types}",
+            f"- Limitation: {status['representativeness_warning']}",
+        ]
+        return "\n".join(lines)
 
     def guided_begin(self, step_id: str | None = None) -> AnalysisRun:
         self.analysis = begin_guided_review(self.analysis, step_id=step_id)
@@ -696,6 +802,17 @@ class GuideState:
 
     def brief(self) -> AnalysisRun:
         self.analysis = build_final_brief(self.analysis)
+        corpus_text = self._corpus_brief_text()
+        if corpus_text:
+            brief = next(
+                step
+                for step in self.analysis.steps
+                if step.kind == StepKind.DRAFT_BRIEF
+            )
+            brief.ai_output = (brief.ai_output or "").rstrip() + "\n\n" + corpus_text
+            self.analysis = AnalysisRun.model_validate(
+                self.analysis.model_dump(mode="python")
+            )
         return self.analysis
 
     def approve_final_brief(
@@ -939,17 +1056,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, STATE.provider.status())
             return
         if self.path == "/api/source/comments/status":
-            report = STATE.last_comment_fetch_report
-            self._send_json(
-                200,
-                {
-                    "report": (
-                        None
-                        if report is None
-                        else report.model_dump(mode="json")
-                    )
-                },
-            )
+            self._send_json(200, STATE.comment_corpus_status())
             return
         if self.path == "/api/errors":
             self._send_json(
