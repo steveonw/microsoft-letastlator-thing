@@ -2,8 +2,8 @@ import json
 import unittest
 from unittest.mock import patch
 
-from models import HumanReviewStatus, StepStatus
-from response_sources import CommentFetchReport, CommentFetchResult
+from models import HumanReviewStatus, InformationType, StepStatus
+from response_sources import CommentFetchReport, CommentFetchResult, ResponseRecord
 from run_full_stack_guide import GuideState, make_rush_inputs
 
 
@@ -71,7 +71,12 @@ class FullStackGuideTests(unittest.TestCase):
         state.document = object()
         state.policy_analysis = policy_run
 
-        fake_record = object()
+        fake_record = ResponseRecord(
+            id="COMMENT-1",
+            title="Comment 1",
+            text="A retrieved comment.",
+            information_type=InformationType.PUBLIC_OPINION,
+        )
         fake_source = response_run.sources[0]
 
         fetch_result = CommentFetchResult(
