@@ -22,6 +22,10 @@ GET  /api/provider
 
 POST /api/provider
 POST /api/provider/clear
+
+POST /api/source/load
+POST /api/source/comments
+
 POST /api/reset
 
 POST /api/guided/begin
@@ -64,7 +68,7 @@ Secrets are:
 - never included in `AnalysisRun`
 - discarded when the process stops or when **Clear credentials** is clicked
 
-The Regulations.gov key is retained only as a wiring example. This reference app uses checked-in fictional guide data and does not claim to perform live Regulations.gov ingestion.
+The Regulations.gov key is used by the local live-comment route only. It is passed directly to the existing Regulations.gov client from process memory and is not serialized into the AnalysisRun.
 
 ## Run
 
@@ -81,6 +85,39 @@ http://127.0.0.1:8777/
 ```
 
 No provider credentials are required. The default deterministic verifier is enough to exercise all flows.
+
+## Real-source flow to try
+
+The page starts with fictional guide data so no credentials are required for a quick demo.
+
+For a real source:
+
+1. Choose OpenRouter, OpenAI, or Microsoft Foundry and enter the provider settings.
+2. If you want public comments, also enter a Regulations.gov API key.
+3. Under **Policy source**, enter a Federal Register document number such as `2024-20529`.
+4. Click **Load + Analyze Policy**.
+5. Optionally enter a Regulations.gov docket such as `BIS-2024-0047`, choose a comment limit, and click **Load + Analyze Comments**.
+6. Continue with Guided or Rush. Those modes now use the loaded real-source AnalysisRun instead of rebuilding the fictional fixture.
+
+The live path uses the existing repository functions:
+
+```text
+Federal Register document number
+   ↓
+fetch_and_normalize
+   ↓
+run_policy_interpreter
+   ↓
+authoritative AnalysisRun
+   ↓
+optional fetch_comments_for_docket
+   ↓
+run_response_viewpoint_analyst
+   ↓
+Guided / Rush / verification / Chunk 9 / final brief
+```
+
+The deterministic demo provider cannot perform live interpretation because its canned verifier only understands claim-verification prompts. A real configured model provider is therefore required for **Load + Analyze Policy**.
 
 ## Guided flow to try
 
