@@ -5,7 +5,11 @@ from federal_register import NormalizedChunk, NormalizedPolicyDocument
 from models import InformationType, PiiRedactionStatus, StepKind, VerificationStatus
 from response_sources import (
     ResponseRecord,
+    _attachment_candidates,
+    _combine_comment_and_attachments,
     _comment_record_from_detail,
+    _extract_attachment_payload,
+    _validate_attachment_url,
     duplicate_cluster_id,
     sanitize_public_text,
     source_from_response_record,
@@ -99,6 +103,96 @@ class ResponseSourceTests(unittest.TestCase):
         self.assertEqual(record.organization, "Example Org")
         self.assertFalse(hasattr(record, "firstName"))
         self.assertFalse(hasattr(record, "lastName"))
+
+    def test_attachment_candidates_prefer_text_then_pdf(self) -> None:
+        detail = {
+            "included": [
+                {
+                    "type": "attachments",
+                    "attributes": {
+                        "title": "Comment letter",
+                        "fileFormats": [
+                            {
+                                "fileUrl": "https://downloads.regulations.gov/DEMO/attachment_1.pdf",
+                                "format": "pdf",
+                                "size": 1000,
+                            },
+                            {
+                                "fileUrl": "https://downloads.regulations.gov/DEMO/attachment_1.txt",
+                                "format": "txt",
+                                "size": 500,
+                            },
+                        ],
+                    },
+                }
+            ]
+        }
+
+        attachments = _attachment_candidates(detail)
+
+        self.assertEqual(len(attachments), 1)
+        title, formats = attachments[0]
+        self.assertEqual(title, "Comment letter")
+        self.assertEqual(formats[0]["format"], "txt")
+        self.assertEqual(formats[1]["format"], "pdf")
+
+    def test_attachment_placeholder_is_replaced_by_extracted_text(self) -> None:
+        combined = _combine_comment_and_attachments(
+            "See attached file(s)",
+            [("Comment letter", "Substantive attachment text.")],
+        )
+
+        self.assertNotIn("See attached file", combined)
+        self.assertIn("Attachment: Comment letter", combined)
+        self.assertIn("Substantive attachment text.", combined)
+
+    def test_inline_comment_and_attachment_are_both_preserved(self) -> None:
+        combined = _combine_comment_and_attachments(
+            "Please see the attached analysis.",
+            [("Analysis", "Detailed supporting text.")],
+        )
+
+        self.assertTrue(combined.startswith("Please see the attached analysis."))
+        self.assertIn("Attachment: Analysis", combined)
+        self.assertIn("Detailed supporting text.", combined)
+
+    def test_html_attachment_extraction_decodes_entities(self) -> None:
+        text = _extract_attachment_payload(
+            b"<p>Transparency &amp; accountability</p><p>Second point.</p>",
+            "html",
+        )
+
+        self.assertIn("Transparency & accountability", text)
+        self.assertIn("Second point.", text)
+
+    def test_attachment_download_host_is_restricted(self) -> None:
+        _validate_attachment_url(
+            "https://downloads.regulations.gov/DEMO/attachment_1.pdf"
+        )
+
+        with self.assertRaises(ValueError):
+            _validate_attachment_url("https://example.com/attachment.pdf")
+
+    def test_comment_record_can_use_attachment_only_text(self) -> None:
+        record = _comment_record_from_detail(
+            "DEMO-ATTACHMENT",
+            {
+                "data": {
+                    "attributes": {
+                        "title": "Attachment-only comment",
+                        "comment": "See attached file(s).",
+                        "postedDate": "2026-01-03T10:00:00Z",
+                    }
+                }
+            },
+            attachment_texts=[
+                ("Submitted letter", "The attachment contains the actual comment.")
+            ],
+        )
+
+        self.assertIsNotNone(record)
+        self.assertNotIn("See attached file", record.text)
+        self.assertIn("The attachment contains the actual comment.", record.text)
 
     def test_source_keeps_response_type_and_duplicate_cluster(self) -> None:
         source = public_source("a", "A response statement.")
