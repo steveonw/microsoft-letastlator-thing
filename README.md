@@ -1,5 +1,19 @@
 # PolicyTrace
 
+## Run the connected demo
+
+From the repository root, install the backend dependencies and start FastAPI:
+
+```bash
+python -m pip install -r backend/requirements.txt
+python -m uvicorn api:app --app-dir backend --reload
+```
+
+Open <http://127.0.0.1:8000/demo/>. The page loads its analysis from
+`GET /api/analysis`, which uses the backend's Federal Register normalization
+and evidence builder with a checked-in fixture. See
+[the demo README](frontend/demo/README.md) for details.
+
 **Planning-stage concept**
 
 PolicyTrace is an AI-assisted policy analysis workspace designed to help people understand what a policy says, who it may affect, how people are responding, and what evidence supports each conclusion.

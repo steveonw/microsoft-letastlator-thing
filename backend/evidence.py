@@ -1,3 +1,13 @@
+"""Turn normalized Federal Register documents into traceable demo analyses.
+
+This module maps a document's metadata and raw text into the shared ``Source``
+model, then locates literal query matches in that text. Evidence excerpts are
+expanded to nearby word boundaries and retain source offsets plus a locator
+built from the document citation, section heading, and chunk ID. Finally, the
+demo builder links that evidence to a narrowly scoped claim and packages the
+claim, evidence, source, policy, and review state into an ``AnalysisRun``.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
