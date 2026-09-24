@@ -1,9 +1,11 @@
 import unittest
+from unittest.mock import patch
 from datetime import date, datetime, timezone
 
 from federal_register import NormalizedPolicyDocument
 from policy_status import (
     _latest_pub_id,
+    fetch_federal_register_rin_documents,
     parse_reginfo_status,
     unavailable_policy_status,
 )
@@ -33,6 +35,41 @@ RULE_HTML = """
 class PolicyStatusTests(unittest.TestCase):
     def test_latest_pub_id_uses_newest_unified_agenda_publication(self) -> None:
         self.assertEqual(_latest_pub_id(SEARCH_HTML, "0694-AJ55"), "202510")
+
+    def test_latest_pub_id_does_not_depend_on_query_parameter_order(self) -> None:
+        html = """
+        <a href="/public/do/eAgendaViewRule?pubId=202510&amp;RIN=0694-AJ55">current</a>
+        """
+        self.assertEqual(_latest_pub_id(html, "0694-AJ55"), "202510")
+
+    def test_federal_register_rin_pull_normalizes_documents(self) -> None:
+        payload = {
+            "results": [
+                {
+                    "document_number": "2024-20529",
+                    "title": "AI reporting proposal",
+                    "type": "Proposed Rule",
+                    "action": "Proposed rule; request for comment",
+                    "publication_date": "2024-09-11",
+                    "html_url": "https://www.federalregister.gov/d/2024-20529",
+                },
+                {
+                    "document_number": "2025-99999",
+                    "title": "Later related action",
+                    "type": "Rule",
+                    "action": "Final rule",
+                    "publication_date": "2025-12-01",
+                    "html_url": "https://www.federalregister.gov/d/2025-99999",
+                },
+            ]
+        }
+
+        with patch("policy_status._get_json", return_value=payload):
+            documents = fetch_federal_register_rin_documents("0694-AJ55")
+
+        self.assertEqual(len(documents), 2)
+        self.assertEqual(documents[0].document_number, "2024-20529")
+        self.assertEqual(documents[1].publication_date.isoformat(), "2025-12-01")
 
     def test_later_withdrawal_is_reported_as_material_freshness_change(self) -> None:
         checked = datetime(2026, 9, 23, tzinfo=timezone.utc)
