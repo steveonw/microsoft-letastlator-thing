@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 from datetime import date, datetime, timezone
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,14 +18,34 @@ REGINFO_SEARCH_URL = (
     "https://www.reginfo.gov/public/Forward?"
     "SearchTarget=Agenda&textfield={rin}"
 )
+REGINFO_XML_REPORT_URL = "https://www.reginfo.gov/public/do/eAgendaXmlReport"
 REGINFO_RULE_URL = (
     "https://www.reginfo.gov/public/do/eAgendaViewRule?"
     "RIN={rin}&pubId={pub_id}"
+)
+FEDERAL_REGISTER_RIN_SEARCH_URL = (
+    "https://www.federalregister.gov/api/v1/documents.json?"
+    "per_page=100&order=newest&"
+    "conditions%5Bregulation_id_number%5D={rin}"
+)
+REGINFO_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/140.0 Safari/537.36 PolicyTrace/0.1"
 )
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class FederalRegisterDocumentRef(StrictModel):
+    document_number: str
+    title: str
+    document_type: str | None = None
+    action: str | None = None
+    publication_date: date | None = None
+    html_url: str | None = None
 
 
 class RulemakingAction(StrictModel):
@@ -38,7 +59,7 @@ class RulemakingAction(StrictModel):
 class PolicyStatusSnapshot(StrictModel):
     available: bool
     checked_at: datetime
-    source_name: str = "Reginfo.gov Unified Agenda"
+    source_name: str = "Reginfo.gov Unified Agenda + Federal Register"
     source_url: str | None = None
     rin: str | None = None
     publication_id: str | None = None
@@ -47,6 +68,13 @@ class PolicyStatusSnapshot(StrictModel):
     actions: list[RulemakingAction] = Field(default_factory=list)
     latest_completed_action: RulemakingAction | None = None
     later_material_action_found: bool = False
+    federal_register_documents: list[FederalRegisterDocumentRef] = Field(
+        default_factory=list
+    )
+    later_federal_register_documents: list[FederalRegisterDocumentRef] = Field(
+        default_factory=list
+    )
+    federal_register_check_error: str | None = None
     status_label: str
     freshness_message: str
     error: str | None = None
@@ -94,18 +122,46 @@ class _ReadableHtmlParser(HTMLParser):
         return value.strip()
 
 
+class _LinkParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag.casefold() != "a":
+            return
+        values = dict(attrs)
+        href = values.get("href")
+        if href:
+            self.hrefs.append(html.unescape(href))
+
+
 def _get_text(url: str, *, timeout: int = 20) -> str:
     request = Request(
         url,
         headers={
-            "User-Agent": DEFAULT_USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml",
+            "User-Agent": REGINFO_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cache-Control": "no-cache",
         },
     )
     with urlopen(request, timeout=timeout) as response:
         body = response.read()
         charset = response.headers.get_content_charset() or "utf-8"
         return body.decode(charset, errors="replace")
+
+
+def _get_json(url: str, *, timeout: int = 20) -> dict[str, Any]:
+    request = Request(
+        url,
+        headers={
+            "User-Agent": DEFAULT_USER_AGENT,
+            "Accept": "application/json",
+        },
+    )
+    with urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
 def _plain_html_text(payload: str) -> str:
@@ -115,18 +171,95 @@ def _plain_html_text(payload: str) -> str:
 
 
 def _latest_pub_id(search_html: str, rin: str) -> str:
-    normalized = search_html.replace("&amp;", "&")
-    pattern = re.compile(
-        r"eAgendaViewRule\?[^\"']*"
-        + r"RIN="
-        + re.escape(rin)
-        + r"[^\"']*pubId=(\d+)",
-        re.IGNORECASE,
-    )
-    values = {match.group(1) for match in pattern.finditer(normalized)}
+    parser = _LinkParser()
+    parser.feed(search_html)
+
+    values: set[str] = set()
+    for href in parser.hrefs:
+        if "eAgendaViewRule" not in href:
+            continue
+        parsed = urlparse(href)
+        params = parse_qs(parsed.query)
+        candidate_rin = (params.get("RIN") or params.get("rin") or [None])[0]
+        pub_id = (params.get("pubId") or params.get("pubid") or [None])[0]
+        if candidate_rin and candidate_rin.casefold() == rin.casefold() and pub_id:
+            values.add(str(pub_id))
+
+    # Some Reginfo responses contain escaped links in script/text rather than
+    # ordinary anchors. Keep a tolerant fallback that does not depend on query
+    # parameter order.
+    if not values:
+        normalized = html.unescape(search_html)
+        for href in re.findall(
+            r"""eAgendaViewRule\?[^\s"'<>]+""",
+            normalized,
+            flags=re.IGNORECASE,
+        ):
+            parsed = urlparse("https://www.reginfo.gov/public/do/" + href)
+            params = parse_qs(parsed.query)
+            candidate_rin = (params.get("RIN") or params.get("rin") or [None])[0]
+            pub_id = (params.get("pubId") or params.get("pubid") or [None])[0]
+            if candidate_rin and candidate_rin.casefold() == rin.casefold() and pub_id:
+                values.add(str(pub_id))
+
     if not values:
         raise ValueError(f"Reginfo.gov returned no Unified Agenda entries for RIN {rin}")
     return max(values, key=lambda value: int(value))
+
+
+def _latest_xml_pub_id(report_html: str) -> str:
+    values = {
+        match.group(1)
+        for match in re.finditer(
+            r"REGINFO_RIN_DATA_(\d+)\.xml",
+            html.unescape(report_html),
+            flags=re.IGNORECASE,
+        )
+    }
+    if not values:
+        raise ValueError("Reginfo.gov XML report page exposed no Unified Agenda data files")
+    return max(values, key=lambda value: int(value))
+
+
+def _parse_date(value: Any) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def fetch_federal_register_rin_documents(
+    rin: str,
+    *,
+    timeout: int = 20,
+) -> list[FederalRegisterDocumentRef]:
+    url = FEDERAL_REGISTER_RIN_SEARCH_URL.format(rin=quote(rin, safe=""))
+    payload = _get_json(url, timeout=timeout)
+    rows = payload.get("results")
+    if not isinstance(rows, list):
+        raise ValueError("Federal Register RIN search returned no results list")
+
+    documents: list[FederalRegisterDocumentRef] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        document_number = row.get("document_number")
+        title = row.get("title")
+        if not document_number or not title:
+            continue
+        documents.append(
+            FederalRegisterDocumentRef(
+                document_number=str(document_number),
+                title=str(title),
+                document_type=row.get("type"),
+                action=row.get("action"),
+                publication_date=_parse_date(row.get("publication_date")),
+                html_url=row.get("html_url"),
+            )
+        )
+    return documents
 
 
 def _extract_between(
@@ -212,7 +345,11 @@ def _parse_timetable(text: str) -> list[RulemakingAction]:
         if not name:
             continue
 
-        next_start = matches[index + 1].start() if index + 1 < len(matches) else len(compact)
+        next_start = (
+            matches[index + 1].start()
+            if index + 1 < len(matches)
+            else len(compact)
+        )
         after = compact[match.end() : next_start].strip()
         cite_match = re.match(r"(\d+\s+FR\s+\d+)\b", after, flags=re.IGNORECASE)
         citation = cite_match.group(1) if cite_match else None
@@ -351,31 +488,90 @@ def fetch_policy_status(
     *,
     timeout: int = 20,
 ) -> PolicyStatusSnapshot:
-    rins = [value.strip() for value in document.regulation_id_numbers if value.strip()]
+    rins = [
+        value.strip()
+        for value in document.regulation_id_numbers
+        if value.strip()
+    ]
     if not rins:
         return unavailable_policy_status(
             "Federal Register metadata did not provide a Regulation Identifier Number (RIN)."
         )
 
     rin = rins[0]
+
+    federal_register_documents: list[FederalRegisterDocumentRef] = []
+    federal_register_error: str | None = None
+    try:
+        federal_register_documents = fetch_federal_register_rin_documents(
+            rin,
+            timeout=timeout,
+        )
+    except Exception as exc:
+        federal_register_error = f"{type(exc).__name__}: {exc}"
+
+    later_federal_register_documents = [
+        item
+        for item in federal_register_documents
+        if (
+            document.publication_date is not None
+            and item.publication_date is not None
+            and item.publication_date > document.publication_date
+            and item.document_number != document.document_number
+        )
+    ]
+
+    discovery_errors: list[str] = []
+    publication_id: str | None = None
+
     search_url = REGINFO_SEARCH_URL.format(rin=quote(rin, safe=""))
     try:
         search_html = _get_text(search_url, timeout=timeout)
         publication_id = _latest_pub_id(search_html, rin)
+    except Exception as exc:
+        discovery_errors.append(
+            f"RIN search discovery: {type(exc).__name__}: {exc}"
+        )
+
+    if publication_id is None:
+        try:
+            report_html = _get_text(REGINFO_XML_REPORT_URL, timeout=timeout)
+            publication_id = _latest_xml_pub_id(report_html)
+        except Exception as exc:
+            discovery_errors.append(
+                f"XML report discovery: {type(exc).__name__}: {exc}"
+            )
+
+    if publication_id is not None:
         rule_url = REGINFO_RULE_URL.format(
             rin=quote(rin, safe=""),
             pub_id=quote(publication_id, safe=""),
         )
-        rule_html = _get_text(rule_url, timeout=timeout)
-        return parse_reginfo_status(
-            rule_html,
-            rin=rin,
-            publication_id=publication_id,
-            source_url=rule_url,
-            document_publication_date=document.publication_date,
-        )
-    except Exception as exc:
-        return unavailable_policy_status(
-            f"{type(exc).__name__}: {exc}",
-            rin=rin,
-        )
+        try:
+            rule_html = _get_text(rule_url, timeout=timeout)
+            snapshot = parse_reginfo_status(
+                rule_html,
+                rin=rin,
+                publication_id=publication_id,
+                source_url=rule_url,
+                document_publication_date=document.publication_date,
+            )
+            snapshot.federal_register_documents = federal_register_documents
+            snapshot.later_federal_register_documents = (
+                later_federal_register_documents
+            )
+            snapshot.federal_register_check_error = federal_register_error
+            return snapshot
+        except Exception as exc:
+            discovery_errors.append(
+                f"rule fetch: {type(exc).__name__}: {exc}"
+            )
+
+    failure = unavailable_policy_status(
+        "; ".join(discovery_errors) or "Unified Agenda lookup failed",
+        rin=rin,
+    )
+    failure.federal_register_documents = federal_register_documents
+    failure.later_federal_register_documents = later_federal_register_documents
+    failure.federal_register_check_error = federal_register_error
+    return failure
