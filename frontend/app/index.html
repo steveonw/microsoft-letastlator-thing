@@ -11,7 +11,7 @@
     <div class="brand">
       <span class="mark">PolicyTrace</span>
       <span class="tagline">Every finding traced to the source text</span>
-      <span id="build-marker" class="build-marker">build 17</span>
+      <span id="build-marker" class="build-marker">build 18</span>
     </div>
     <div class="topbar-right">
       <span id="mode-pill" class="pill">not started</span>
@@ -94,6 +94,10 @@
             <label>Regulations.gov key
               <input id="regs-key" type="password" placeholder="needed only for live comments" />
             </label>
+            <label>Media Cloud key (optional)
+              <input id="mediacloud-key" type="password"
+                     placeholder="historical news search; kept in memory only" />
+            </label>
           </div>
           <p id="provider-help" class="muted small"></p>
           <button id="save-provider" type="button">Save settings</button>
@@ -152,9 +156,9 @@
           </div>
           <button id="discover-news" type="button">Find related reporting</button>
           <p class="muted small">
-            GDELT is used only to discover recent factual-reporting sources.
+            PolicyTrace tries Media Cloud historical search when a key is configured,
+            then GDELT recent discovery, then Google News RSS as a best-effort fallback.
             Headlines and metadata are pointers, not verified factual claims.
-            Open the original article before relying on its factual content.
           </p>
         </div>
 
