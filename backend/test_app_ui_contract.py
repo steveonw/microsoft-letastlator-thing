@@ -626,7 +626,7 @@ class ReviewerFlagGateTests(unittest.TestCase):
             )
         )
 
-    def test_flag_survives_section_review_and_enters_brief(self) -> None:
+    def test_flag_survives_review_and_is_preserved_in_audit_log(self) -> None:
         state = GuideState()
         state.reset("guided")
         begun = state.guided_begin(None)
@@ -639,11 +639,17 @@ class ReviewerFlagGateTests(unittest.TestCase):
         self._review_all_guided(state)
         briefed = state.brief()
         brief = next(step for step in briefed.steps if step.kind.value == "draft_brief")
+        audit = state.evidence_audit_log()
 
-        self.assertIn(
+        self.assertNotIn(
             'FLAGGED BY REVIEWER: The source says "covered", not "licensed".',
             brief.ai_output,
         )
+        self.assertIn(
+            'FLAGGED BY REVIEWER: The source says "covered", not "licensed".',
+            audit,
+        )
+        self.assertIn("Report promotion: BLOCKED", audit)
 
         with self.assertRaisesRegex(ValueError, "reviewer flags"):
             state.approve_final_brief()
