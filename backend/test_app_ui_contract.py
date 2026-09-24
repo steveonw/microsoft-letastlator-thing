@@ -212,10 +212,19 @@ class TrustUxCleanupTests(unittest.TestCase):
         self.assertIn("if (!(reviewed && allContentReviewed()))", source)
         self.assertIn('add("Build final brief"', source)
 
-    def test_phase_four_build_marker_is_visible(self) -> None:
+    def test_phase_five_build_marker_is_visible(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         html = index_path.read_text(encoding="utf-8")
-        self.assertIn(">build 11<", html)
+        self.assertIn(">build 12<", html)
+
+    def test_analysis_prompts_request_atomic_findings(self) -> None:
+        policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
+        response_path = full_stack.ROOT / "backend" / "response_viewpoint_analyst.py"
+        policy_source = policy_path.read_text(encoding="utf-8")
+        response_source = response_path.read_text(encoding="utf-8")
+
+        self.assertIn("Keep each finding atomic", policy_source)
+        self.assertIn("Keep each finding atomic", response_source)
 
 
 class PolicyFreshnessVisibilityTests(unittest.TestCase):
@@ -270,6 +279,28 @@ class CorpusLimitVisibilityTests(unittest.TestCase):
         self.assertEqual(status["analyzed_source_count"], 1)
         self.assertEqual(status["exact_text_cluster_count"], 1)
         self.assertIn("not a representative sample", status["representativeness_warning"])
+
+    def test_degraded_attachment_count_is_distinct_from_source_count(self) -> None:
+        state = GuideState()
+        _, response_run = full_stack.make_rush_inputs()
+        source = response_run.sources[0]
+        marker = full_stack.DEGRADED_ATTACHMENT_MARKER
+        source.raw_text = (
+            f"{marker} first warning]\nattachment one\n\n"
+            f"{marker} second warning]\nattachment two"
+        )
+        response_run.sources = [source]
+        state.response_analysis = response_run
+        state.last_comment_fetch_report = full_stack.CommentFetchReport(
+            docket_id="DEMO",
+            requested_count=1,
+            retrieved_count=1,
+        )
+
+        status = state.comment_corpus_status()
+
+        self.assertEqual(status["degraded_source_count"], 1)
+        self.assertEqual(status["degraded_attachment_count"], 2)
 
     def test_final_brief_includes_corpus_limits_when_comments_are_present(self) -> None:
         state = GuideState()
