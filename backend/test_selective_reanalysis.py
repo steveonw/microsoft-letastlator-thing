@@ -19,6 +19,7 @@ from models import (
 )
 from selective_reanalysis import (
     ReanalysisResult,
+    build_evidence_audit_log,
     build_final_brief,
     dependent_step_ids,
     reanalyze_step,
@@ -309,13 +310,16 @@ class SelectiveReanalysisTests(unittest.TestCase):
             HumanReviewStatus.IN_REVIEW,
         )
         self.assertIn(
-            "[claim-one] (AI-generated) The policy creates a reporting duty.",
+            "The policy creates a reporting duty. [claim-one]",
             brief.ai_output,
         )
-        self.assertIn("Evidence: evidence-one", brief.ai_output)
-        self.assertIn("[claim-two] (AI-generated) Covered providers are identified.", brief.ai_output)
+        self.assertNotIn("Exact passage:", brief.ai_output)
         self.assertIn(
-            "[claim-sibling] (AI-generated) A separate reviewed finding remains stable.",
+            "Covered providers are identified. [claim-two]",
+            brief.ai_output,
+        )
+        self.assertIn(
+            "A separate reviewed finding remains stable. [claim-sibling]",
             brief.ai_output,
         )
         self.assertNotIn("[claim-four]", brief.ai_output)
@@ -329,11 +333,12 @@ class SelectiveReanalysisTests(unittest.TestCase):
         claim.verification_note = "No cited evidence is available."
 
         briefed = build_final_brief(analysis)
-        text = briefed.steps[-1].ai_output
-        normal, audit = text.split("## Unresolved / audit-only findings", 1)
+        leadership = briefed.steps[-1].ai_output
+        audit = build_evidence_audit_log(briefed)
 
-        self.assertNotIn("[claim-one]", normal)
-        self.assertIn("[claim-one]", audit)
+        self.assertNotIn("[claim-one]", leadership)
+        self.assertIn("1 reviewed finding(s) were withheld", leadership)
+        self.assertIn("Claim ID: claim-one", audit)
         self.assertIn("Report promotion: BLOCKED", audit)
         self.assertIn("No cited evidence", audit)
 
@@ -344,11 +349,11 @@ class SelectiveReanalysisTests(unittest.TestCase):
         claim.verification_note = "Semantic support requires human review."
 
         briefed = build_final_brief(analysis)
-        text = briefed.steps[-1].ai_output
-        normal, audit = text.split("## Unresolved / audit-only findings", 1)
+        leadership = briefed.steps[-1].ai_output
+        audit = build_evidence_audit_log(briefed)
 
-        self.assertNotIn("[claim-two]", normal)
-        self.assertIn("[claim-two]", audit)
+        self.assertNotIn("[claim-two]", leadership)
+        self.assertIn("Claim ID: claim-two", audit)
         self.assertIn("needs_human_review", audit)
 
     def test_reviewer_flag_blocks_normal_report_promotion(self) -> None:
@@ -358,13 +363,37 @@ class SelectiveReanalysisTests(unittest.TestCase):
         step.human_review.notes.append("Flagged claim-one: Reviewer disputes this wording.")
 
         briefed = build_final_brief(analysis)
-        text = briefed.steps[-1].ai_output
-        normal, audit = text.split("## Unresolved / audit-only findings", 1)
+        leadership = briefed.steps[-1].ai_output
+        audit = build_evidence_audit_log(briefed)
 
-        self.assertNotIn("[claim-one]", normal)
-        self.assertIn("[claim-one]", audit)
+        self.assertNotIn("[claim-one]", leadership)
+        self.assertIn("Claim ID: claim-one", audit)
         self.assertIn("Reviewer flag remains unresolved", audit)
         self.assertIn("FLAGGED BY REVIEWER", audit)
+
+    def test_audit_log_contains_exact_evidence_receipts_and_source_metadata(self) -> None:
+        analysis = demo_analysis()
+
+        audit = build_evidence_audit_log(analysis)
+
+        self.assertIn("PolicyTrace Evidence Audit Log", audit)
+        self.assertIn("Claim ID: claim-one", audit)
+        self.assertIn("Evidence ID: evidence-one", audit)
+        self.assertIn("Source title: Demo policy", audit)
+        self.assertIn("Source type: official_policy", audit)
+        self.assertIn("Exact passage:", audit)
+        self.assertIn("Section one creates a reporting duty.", audit)
+
+    def test_leadership_report_uses_stable_claim_ids_without_evidence_dump(self) -> None:
+        analysis = demo_analysis()
+
+        briefed = build_final_brief(analysis)
+        report = briefed.steps[-1].ai_output
+
+        self.assertIn("PolicyTrace Leadership Report", report)
+        self.assertIn("[claim-one]", report)
+        self.assertNotIn("Evidence ID:", report)
+        self.assertNotIn("Exact passage:", report)
 
     def test_final_approval_can_supply_acceptance_for_rush_sections(self) -> None:
         analysis = demo_analysis()
