@@ -573,20 +573,27 @@ function renderNewsStatus() {
   byId("news-health").className =
     `pill ${sources.length ? "corpus-ok" : "corpus-gap"}`;
 
+  const attempts = newsStatus.provider_attempts || [];
   byId("news-metrics").replaceChildren(
     metric("articles", sources.length),
-    metric("provider", newsStatus.provider || "GDELT"),
-    metric("window start", newsStatus.window_start || "—"),
-    metric("window end", newsStatus.window_end || "—")
+    metric("provider", newsStatus.provider || "multi-source"),
+    metric("providers checked", attempts.length),
+    metric("coverage", "provider-specific")
   );
   byId("news-warning").textContent = newsStatus.limitation || "";
-  const attempts = (newsStatus.provider_attempts || [])
-    .map((attempt) => `${attempt.provider}: ${attempt.status} — ${attempt.detail}`)
+  const attemptSummary = attempts
+    .map((attempt) => {
+      const window =
+        attempt.window_start || attempt.window_end
+          ? ` [${attempt.window_start || "open"} → ${attempt.window_end || "open"}]`
+          : "";
+      return `${attempt.provider}: ${attempt.status} — ${attempt.detail}${window}`;
+    })
     .join(" · ");
   byId("news-detail").textContent = [
     `Query: ${newsStatus.query || "—"}`,
     newsStatus.checked_at ? `Checked: ${newsStatus.checked_at}` : "",
-    attempts ? `Provider path: ${attempts}` : "",
+    attemptSummary ? `Provider path: ${attemptSummary}` : "",
   ].filter(Boolean).join(" · ");
 
   const list = byId("news-list");
@@ -617,13 +624,6 @@ function renderNewsStatus() {
       link.rel = "noopener";
       link.textContent = "Open original article";
       item.append(link);
-
-      const archive = document.createElement("a");
-      archive.href = `https://web.archive.org/web/*/${source.url}`;
-      archive.target = "_blank";
-      archive.rel = "noopener";
-      archive.textContent = "View archive history";
-      item.append(" · ", archive);
     }
     list.append(item);
   }
