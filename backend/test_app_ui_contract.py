@@ -179,6 +179,20 @@ if __name__ == "__main__":
 
 
 
+class PolicyFreshnessVisibilityTests(unittest.TestCase):
+    def test_product_ui_surfaces_current_policy_status(self) -> None:
+        index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        html = index_path.read_text(encoding="utf-8")
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn('id="policy-status-card"', html)
+        self.assertIn("Current status / freshness", html)
+        self.assertIn("/api/source/policy/status", source)
+        self.assertIn("later_material_action_found", source)
+        self.assertIn("status check unavailable", source)
+
+
 class CorpusLimitVisibilityTests(unittest.TestCase):
     def test_product_ui_surfaces_corpus_limits_and_precise_duplicate_wording(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
