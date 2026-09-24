@@ -175,6 +175,10 @@ function sectionGuidance(step) {
       : "Every section is reviewed. Build the final brief below.";
   }
 
+  if (step.kind === "factual_reporting") {
+    return "Review these discovered media/source pointers. Headlines are discovery metadata, not verified article-body facts. Open sources as needed, then mark this section reviewed.";
+  }
+
   const flagged = (step.human_review?.flagged_claim_ids ?? []).length;
   if (flagged) {
     return `${flagged} finding${flagged === 1 ? " is" : "s are"} flagged. You can still mark this section reviewed; final approval will require the flag to be resolved or explicitly acknowledged.`;
@@ -272,7 +276,7 @@ function render() {
   byId("review-state").textContent = say(run.final_review_status);
   renderPolicyStatus();
   renderRevisionComparison();
-  renderNewsStatus();
+  byId("news-card").hidden = true;
   renderCorpusStatus();
 
   renderSections();
@@ -648,7 +652,13 @@ async function discoverNews() {
   if (!data) return;
   newsStatus = data;
   if (run) {
-    renderNewsStatus();
+    const refreshed = await api("/api/analysis");
+    if (refreshed) run = refreshed;
+    selectedStepId = "step-related-media";
+    selectedClaimId = null;
+    editingClaimId = null;
+    flaggingClaimId = null;
+    render();
   } else {
     renderComparisonPreview();
   }
@@ -825,7 +835,10 @@ function renderClaimCard(claim, step) {
 
   const status = document.createElement("span");
   status.className = `verdict ${claim.verification_status}`;
-  status.textContent = say(claim.verification_status);
+  status.textContent =
+    step.kind === "factual_reporting"
+      ? "source pointer"
+      : say(claim.verification_status);
   top.append(status);
 
   const missingEvidence = !(claim.evidence_ids ?? []).length;
@@ -865,6 +878,30 @@ function renderClaimCard(claim, step) {
     text.className = "claim-text";
     text.textContent = claim.text;
     card.append(text);
+  }
+
+  if (step.kind === "factual_reporting") {
+    const evidence = (claim.evidence_ids ?? []).map(evidenceById).find(Boolean);
+    const source = evidence ? sourceById(evidence.source_id) : null;
+    if (source) {
+      const meta = document.createElement("p");
+      meta.className = "claim-note";
+      meta.textContent = [
+        source.agency || "",
+        source.published_at || "",
+      ].filter(Boolean).join(" · ");
+      card.append(meta);
+
+      if (source.url) {
+        const link = document.createElement("a");
+        link.href = source.url;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = "Open original article";
+        link.addEventListener("click", (event) => event.stopPropagation());
+        card.append(link);
+      }
+    }
   }
 
   if (claim.original_text && claim.id !== editingClaimId) {
@@ -1114,7 +1151,7 @@ function renderActions() {
     return;
   }
 
-  if (claim) {
+  if (claim && step.kind !== "factual_reporting") {
     add("Edit wording", () => {
       flaggingClaimId = null;
       editingClaimId = claim.id;
