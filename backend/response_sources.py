@@ -305,6 +305,10 @@ def _extract_docx_text(payload: bytes) -> str:
     return re.sub(r"\n{3,}", "\n\n", "".join(parts)).strip()
 
 
+DEGRADED_ATTACHMENT_MARKER = (
+    "[PolicyTrace: this attachment extracted without word spacing."
+)
+
 MIN_SPACE_RATIO = 0.08
 """
 Minimum spaces-per-character for extracted text to be usable.
@@ -425,9 +429,10 @@ def _combine_comment_and_attachments(
                 stacklevel=2,
             )
             body = (
-                "[PolicyTrace: this attachment extracted without word spacing. "
-                "Automated redaction and citation matching are unreliable for "
-                "it and it needs human review.]\n" + body
+                DEGRADED_ATTACHMENT_MARKER
+                + " Automated redaction and citation matching are unreliable for "
+                "it and it needs human review.]\n"
+                + body
             )
         parts.append(f"Attachment: {title}\n{body}")
 
