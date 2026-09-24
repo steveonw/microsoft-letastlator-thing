@@ -155,6 +155,84 @@ class RevisionCompareTests(unittest.TestCase):
             "candidate-first matcher should avoid near all-pairs fuzzy comparison",
         )
 
+    def test_rare_phrase_cribs_recover_moved_edited_provision(self) -> None:
+        older_paragraphs = [
+            "General administrative provisions apply to all covered filings.",
+            (
+                "A covered provider must maintain the cryptographic model-weight "
+                "escrow register and submit an attestation within 30 calendar days."
+            ),
+            "Routine recordkeeping requirements remain in effect.",
+            "Definitions applicable to this subpart are listed below.",
+        ]
+        newer_paragraphs = [
+            "General administrative provisions apply to all covered filings.",
+            "Definitions applicable to this subpart are listed below.",
+            "Routine recordkeeping requirements remain in effect.",
+            (
+                "A covered provider must maintain the cryptographic model-weight "
+                "escrow register and submit an attestation within 45 calendar days."
+            ),
+        ]
+
+        comparison = compare_documents(
+            policy_doc(
+                "2025-10000",
+                "2025-01-01",
+                "\n\n".join(older_paragraphs),
+            ),
+            policy_doc(
+                "2026-20000",
+                "2026-01-01",
+                "\n\n".join(newer_paragraphs),
+            ),
+        )
+
+        moved = [
+            change
+            for change in comparison.changes
+            if change.kind == "changed"
+            and change.before_text
+            and "cryptographic model-weight escrow register" in change.before_text
+        ]
+        self.assertEqual(len(moved), 1)
+        self.assertIn("45 calendar days", moved[0].after_text or "")
+        self.assertIn("deadline/date", moved[0].tags)
+
+    def test_unrelated_boilerplate_is_not_forced_into_changed_pair(self) -> None:
+        older = policy_doc(
+            "2025-10000",
+            "2025-01-01",
+            "\n\n".join(
+                [
+                    (
+                        f"Section {index}. The agency may request information and "
+                        f"maintain administrative records for docket Alpha-{index}."
+                    )
+                    for index in range(24)
+                ]
+            ),
+        )
+        newer = policy_doc(
+            "2026-20000",
+            "2026-01-01",
+            "\n\n".join(
+                [
+                    (
+                        f"Part {index}. The department may collect materials and "
+                        f"retain compliance files for program Omega-{index}."
+                    )
+                    for index in range(24)
+                ]
+            ),
+        )
+
+        comparison = compare_documents(older, newer)
+
+        self.assertEqual(comparison.changed_count, 0)
+        self.assertEqual(comparison.removed_count, 24)
+        self.assertEqual(comparison.added_count, 24)
+
     def test_guide_state_fetches_second_document_without_rerunning_analysis(self) -> None:
         state = GuideState()
         state.document = policy_doc("2025-10000", "2025-01-01", POLICY_TEXT)
