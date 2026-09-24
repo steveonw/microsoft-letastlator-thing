@@ -778,15 +778,18 @@ function renderActions() {
   }
 
   if (guided) {
-    add("Accept section and continue", async () => {
-      const updated = await api("/api/guided/next", {});
-      if (updated) {
-        run = updated;
-        selectedStepId = null;
-        selectedClaimId = null;
-        render();
-      }
-    }, "primary");
+    const reviewed = ["reviewed", "approved"].includes(step.human_review?.status);
+    if (!(reviewed && allContentReviewed())) {
+      add("Accept section and continue", async () => {
+        const updated = await api("/api/guided/next", {});
+        if (updated) {
+          run = updated;
+          selectedStepId = null;
+          selectedClaimId = null;
+          render();
+        }
+      }, "primary");
+    }
   } else {
     add("Check all and mark section reviewed", async () => {
       const updated = await api("/api/reanalysis/review", { step_id: step.id });
