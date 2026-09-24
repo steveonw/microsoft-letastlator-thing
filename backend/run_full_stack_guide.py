@@ -46,7 +46,7 @@ from policy_status import PolicyStatusSnapshot, fetch_policy_status
 from response_sources import (
     CommentFetchError,
     CommentFetchReport,
-    extraction_is_degraded,
+    DEGRADED_ATTACHMENT_MARKER,
     fetch_comments_for_docket_with_report,
     is_attachment_placeholder,
     source_from_response_record,
@@ -716,7 +716,11 @@ class GuideState:
                 for source in usable_sources
             ),
             "degraded_source_count": sum(
-                bool(source.raw_text) and extraction_is_degraded(source.raw_text or "")
+                DEGRADED_ATTACHMENT_MARKER in (source.raw_text or "")
+                for source in usable_sources
+            ),
+            "degraded_attachment_count": sum(
+                (source.raw_text or "").count(DEGRADED_ATTACHMENT_MARKER)
                 for source in usable_sources
             ),
             "representativeness_warning": (
@@ -746,7 +750,8 @@ class GuideState:
             f"- Retrieval failures: {status['failed_retrieval_count']}",
             f"- Unusable retrieved records: {status['unusable_retrieval_count']}",
             f"- PII-pattern redactions: {status['pii_redacted_count']} source records",
-            f"- Degraded extraction: {status['degraded_source_count']} source records",
+            f"- Degraded source records: {status['degraded_source_count']}",
+            f"- Degraded attachments: {status['degraded_attachment_count']}",
             f"- Source types: {source_types}",
             f"- Limitation: {status['representativeness_warning']}",
         ]
