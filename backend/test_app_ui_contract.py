@@ -212,10 +212,10 @@ class TrustUxCleanupTests(unittest.TestCase):
         self.assertIn("if (!(reviewed && allContentReviewed()))", source)
         self.assertIn('add("Build final brief"', source)
 
-    def test_phase_six_build_marker_is_visible(self) -> None:
+    def test_phase_seven_build_marker_is_visible(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         html = index_path.read_text(encoding="utf-8")
-        self.assertIn(">build 13<", html)
+        self.assertIn(">build 14<", html)
 
     def test_analysis_prompts_request_atomic_findings(self) -> None:
         policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
@@ -265,6 +265,23 @@ class FinalOutputSeparationTests(unittest.TestCase):
         self.assertIn("PolicyTrace Evidence Audit Log", audit)
         self.assertIn("Exact passage:", audit)
         self.assertIn("Evidence ID:", audit)
+
+
+class RevisionComparisonVisibilityTests(unittest.TestCase):
+    def test_product_ui_exposes_authoritative_revision_comparison(self) -> None:
+        index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        html = index_path.read_text(encoding="utf-8")
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn('id="revision-doc-number"', html)
+        self.assertIn('id="compare-revision"', html)
+        self.assertIn('id="revision-card"', html)
+        self.assertIn("Deterministic text comparison only", html)
+        self.assertIn("/api/revision-compare", source)
+        self.assertIn("/api/revision-comparison", source)
+        self.assertIn("potentially_affected_claim_ids", source)
+        self.assertIn("Shared RIN not confirmed", source)
 
 
 class PolicyFreshnessVisibilityTests(unittest.TestCase):
