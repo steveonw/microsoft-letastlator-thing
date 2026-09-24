@@ -61,6 +61,7 @@ from rush_mode import (
 )
 from selective_reanalysis import (
     ReanalysisResult,
+    build_evidence_audit_log,
     build_final_brief,
     mark_dependent_steps_needs_refresh,
     reanalyze_step,
@@ -955,6 +956,20 @@ class GuideState:
             )
         return self.analysis
 
+    def evidence_audit_log(self) -> str:
+        text = build_evidence_audit_log(self.analysis)
+        additions = [
+            value
+            for value in (
+                self._policy_status_brief_text(),
+                self._corpus_brief_text(),
+            )
+            if value
+        ]
+        if additions:
+            text = text.rstrip() + "\n\n" + "\n\n".join(additions)
+        return text
+
     def approve_final_brief(
         self,
         *,
@@ -1200,6 +1215,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/source/comments/status":
             self._send_json(200, STATE.comment_corpus_status())
+            return
+        if self.path == "/api/audit-log":
+            self._send_json(200, {"text": STATE.evidence_audit_log()})
             return
         if self.path == "/api/errors":
             self._send_json(
