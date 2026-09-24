@@ -221,12 +221,38 @@ function sourceById(id) {
   return (run?.sources ?? []).find((s) => s.id === id) ?? null;
 }
 
+function renderComparisonPreview() {
+  if (!revisionComparison?.available) return;
+
+  byId("workspace").hidden = false;
+  byId("review-columns").hidden = true;
+  byId("review-actionbar").hidden = true;
+
+  const from = revisionComparison.from_document || {};
+  byId("policy-title").textContent = from.title || "Policy revision comparison";
+  byId("policy-meta").textContent = [
+    from.document_number ? `Federal Register ${from.document_number}` : "",
+    revisionComparison.to_document?.document_number
+      ? `compared with ${revisionComparison.to_document.document_number}`
+      : "",
+  ].filter(Boolean).join(" · ");
+
+  renderPolicyStatus();
+  renderRevisionComparison();
+  renderCorpusStatus();
+}
+
 function render() {
   const started = Boolean(run);
   byId("start-screen").hidden = started;
-  byId("workspace").hidden = !started;
+  byId("workspace").hidden = !started && !revisionComparison?.available;
+  byId("review-columns").hidden = !started;
+  byId("review-actionbar").hidden = !started;
   if (!started) {
-    byId("mode-pill").textContent = "not started";
+    byId("mode-pill").textContent = revisionComparison?.available
+      ? "comparison ready"
+      : "not started";
+    if (revisionComparison?.available) renderComparisonPreview();
     return;
   }
 
@@ -515,7 +541,11 @@ async function compareRevision() {
   revisionComparison = data;
   revisionFilter = "substantive";
   revisionVisibleCount = 25;
-  renderRevisionComparison();
+  if (run) {
+    renderRevisionComparison();
+  } else {
+    renderComparisonPreview();
+  }
   banner("Revision comparison ready. Review changed language and refresh flags.", "info");
 }
 
