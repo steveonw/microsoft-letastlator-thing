@@ -215,7 +215,7 @@ class TrustUxCleanupTests(unittest.TestCase):
     def test_phase_seven_build_marker_is_visible(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         html = index_path.read_text(encoding="utf-8")
-        self.assertIn(">build 14<", html)
+        self.assertIn(">build 15<", html)
 
     def test_analysis_prompts_request_atomic_findings(self) -> None:
         policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
@@ -282,6 +282,22 @@ class RevisionComparisonVisibilityTests(unittest.TestCase):
         self.assertIn("/api/revision-comparison", source)
         self.assertIn("potentially_affected_claim_ids", source)
         self.assertIn("Shared RIN not confirmed", source)
+
+
+class RevisionReviewabilityTests(unittest.TestCase):
+    def test_revision_ui_filters_show_more_and_timing_are_visible(self) -> None:
+        index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        html = index_path.read_text(encoding="utf-8")
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn('data-revision-filter="substantive"', html)
+        self.assertIn('data-revision-filter="threshold"', html)
+        self.assertIn('id="revision-show-more"', html)
+        self.assertIn("comparison_seconds", source)
+        self.assertIn("from_unit_count", source)
+        self.assertIn("revisionLooksLikeHeaderNoise", source)
+        self.assertNotIn(".slice(0, 8)", source)
 
 
 class PolicyFreshnessVisibilityTests(unittest.TestCase):
