@@ -18,6 +18,8 @@ let flaggingClaimId = null;
 let corpusStatus = null;
 let policyStatus = null;
 let revisionComparison = null;
+let revisionFilter = "substantive";
+let revisionVisibleCount = 25;
 let reportView = "leadership";
 let auditLogText = null;
 let apiRequestInFlight = false;
@@ -313,6 +315,54 @@ function shortText(value, max = 240) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+function revisionLooksLikeHeaderNoise(change) {
+  const text = `${change.before_text || ""} ${change.after_text || ""}`
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return false;
+
+  const patterns = [
+    /^Federal Register,? Volume \d+/i,
+    /^\[?Federal Register Volume \d+/i,
+    /^Vol\.\s*\d+$/i,
+    /^No\.\s*\d+$/i,
+    /^\[?Page\s+\d+\]?$/i,
+    /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?$/i,
+    /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}$/i,
+    /^Part\s+[IVXLC]+$/i,
+  ];
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function revisionMatchesFilter(change) {
+  if (revisionFilter === "all") return true;
+  if (revisionFilter === "substantive") return !revisionLooksLikeHeaderNoise(change);
+  if (revisionFilter === "threshold") {
+    return (change.tags || []).includes("threshold/number");
+  }
+  if (revisionFilter === "date") {
+    return (change.tags || []).includes("deadline/date");
+  }
+  if (revisionFilter === "stakeholder") {
+    return (change.tags || []).includes("stakeholder-scope language");
+  }
+  if (revisionFilter === "text") {
+    return (change.tags || []).includes("text");
+  }
+  return true;
+}
+
+function revisionSortKey(change) {
+  if (revisionLooksLikeHeaderNoise(change)) return 9;
+  if ((change.potentially_affected_claim_ids || []).length) return 0;
+  if ((change.tags || []).includes("threshold/number")) return 1;
+  if ((change.tags || []).includes("deadline/date")) return 2;
+  if ((change.tags || []).includes("stakeholder-scope language")) return 3;
+  if (change.kind === "changed") return 4;
+  if (change.kind === "removed") return 5;
+  return 6;
+}
+
 function renderRevisionComparison() {
   const card = byId("revision-card");
   if (!card) return;
@@ -331,6 +381,16 @@ function renderRevisionComparison() {
     metric(
       "claims may need refresh",
       (revisionComparison.potentially_affected_claim_ids || []).length
+    ),
+    metric(
+      "comparison time",
+      revisionComparison.comparison_seconds == null
+        ? "—"
+        : `${revisionComparison.comparison_seconds}s`
+    ),
+    metric(
+      "document units",
+      `${revisionComparison.from_unit_count || 0} → ${revisionComparison.to_unit_count || 0}`
     )
   );
 
@@ -354,9 +414,32 @@ function renderRevisionComparison() {
     affected.length ? `May need refresh: ${affected.join(", ")}` : "",
   ].filter(Boolean).join(" · ");
 
+  const allChanges = [...(revisionComparison.changes || [])]
+    .sort((a, b) => {
+      const rank = revisionSortKey(a) - revisionSortKey(b);
+      if (rank !== 0) return rank;
+      return String(a.id || "").localeCompare(String(b.id || ""));
+    });
+  const filteredChanges = allChanges.filter(revisionMatchesFilter);
+  const visibleChanges = filteredChanges.slice(0, revisionVisibleCount);
+
+  const shown = byId("revision-shown");
+  shown.textContent =
+    `Showing ${visibleChanges.length} of ${filteredChanges.length} matching changes` +
+    (revisionFilter === "substantive"
+      ? " · obvious Federal Register header metadata hidden"
+      : "");
+
+  for (const button of document.querySelectorAll("[data-revision-filter]")) {
+    button.classList.toggle(
+      "active",
+      button.dataset.revisionFilter === revisionFilter
+    );
+  }
+
   const list = byId("revision-changes");
   list.replaceChildren();
-  for (const change of (revisionComparison.changes || []).slice(0, 8)) {
+  for (const change of visibleChanges) {
     const item = document.createElement("details");
     item.className = "revision-change";
     const summary = document.createElement("summary");
@@ -402,6 +485,12 @@ function renderRevisionComparison() {
     item.append(links);
     list.append(item);
   }
+
+  const more = byId("revision-show-more");
+  more.hidden = revisionVisibleCount >= filteredChanges.length;
+  more.textContent = more.hidden
+    ? "Show more"
+    : `Show 25 more (${filteredChanges.length - revisionVisibleCount} remaining)`;
 }
 
 async function refreshRevisionComparison() {
@@ -424,6 +513,8 @@ async function compareRevision() {
   });
   if (!data) return;
   revisionComparison = data;
+  revisionFilter = "substantive";
+  revisionVisibleCount = 25;
   renderRevisionComparison();
   banner("Revision comparison ready. Review changed language and refresh flags.", "info");
 }
@@ -1223,6 +1314,17 @@ function boot() {
   syncProviderFields();
   byId("load-policy").addEventListener("click", loadPolicy);
   byId("compare-revision").addEventListener("click", compareRevision);
+  for (const button of document.querySelectorAll("[data-revision-filter]")) {
+    button.addEventListener("click", () => {
+      revisionFilter = button.dataset.revisionFilter || "substantive";
+      revisionVisibleCount = 25;
+      renderRevisionComparison();
+    });
+  }
+  byId("revision-show-more").addEventListener("click", () => {
+    revisionVisibleCount += 25;
+    renderRevisionComparison();
+  });
   byId("load-comments").addEventListener("click", loadComments);
   byId("recent-errors").addEventListener("click", showRecentErrors);
   byId("close-errors").addEventListener("click", () => {
@@ -1238,6 +1340,8 @@ function boot() {
     corpusStatus = null;
     policyStatus = null;
     revisionComparison = null;
+    revisionFilter = "substantive";
+    revisionVisibleCount = 25;
     reportView = "leadership";
     auditLogText = null;
     byId("brief-screen").hidden = true;
