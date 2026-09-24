@@ -269,8 +269,7 @@ def build_chunk3_demo_analysis(
         evidence_ids=[evidence.id],
         verification_status=VerificationStatus.NEEDS_HUMAN_REVIEW,
         verification_note=(
-            "Citation integrity is established, but semantic support is not "
-            "verified until Chunk 6."
+            "Citation integrity checked. Semantic support still needs verification."
         ),
         confidence="high",
     )
