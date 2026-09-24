@@ -330,102 +330,207 @@ def _promotion_block_reason(step: AnalysisStep, claim) -> str | None:
     return None
 
 
-def _append_claim_trace(
-    lines: list[str],
-    *,
-    step: AnalysisStep,
-    claim,
-    block_reason: str | None = None,
-) -> None:
-    evidence = ", ".join(claim.evidence_ids) if claim.evidence_ids else "none"
-    origin = _claim_origin(step, claim)
+def _leadership_claim_line(step: AnalysisStep, claim) -> str:
+    labels: list[str] = []
+    if _claim_origin(step, claim) == "human-edited":
+        labels.append("human-edited")
+    if claim.verification_status == VerificationStatus.PARTIALLY_SUPPORTED:
+        labels.append("partially supported")
+    suffix = f" ({'; '.join(labels)})" if labels else ""
+    return f"- {claim.text} [{claim.id}]{suffix}"
+
+
+def _leadership_report_text(
+    analysis: AnalysisRun,
+    steps: list[AnalysisStep],
+) -> str:
+    lines = [
+        "PolicyTrace Leadership Report",
+        f"Policy: {analysis.policy.title}",
+        "",
+        (
+            "This report contains only reviewed findings that have cited evidence "
+            "and passed the report-promotion gate. Stable claim IDs in brackets "
+            "link each finding to the Evidence Audit Log."
+        ),
+    ]
+
+    withheld = 0
+    for step in steps:
+        promoted = []
+        for claim in step.claims:
+            if _promotion_block_reason(step, claim) is None:
+                promoted.append(claim)
+            else:
+                withheld += 1
+
+        lines.extend(["", f"## {step.title}"])
+        if not promoted:
+            lines.append(
+                "- No reviewed findings from this section met report-promotion criteria."
+            )
+            continue
+
+        for claim in promoted:
+            lines.append(_leadership_claim_line(step, claim))
+
     lines.extend(
         [
-            f"- [{claim.id}] ({origin}) {claim.text}",
-            f"  Verification: {claim.verification_status.value}",
-            f"  Evidence: {evidence}",
+            "",
+            "## Review limitations",
+            (
+                f"- {withheld} reviewed finding(s) were withheld from this leadership "
+                "report because an evidence, verification, or reviewer-flag gate "
+                "remains unresolved. See the Evidence Audit Log for the full record."
+            ),
         ]
     )
-    if block_reason:
-        lines.append(f"  Report promotion: BLOCKED — {block_reason}")
+    return "\n".join(lines)
 
+
+def _append_evidence_receipts(
+    lines: list[str],
+    *,
+    analysis: AnalysisRun,
+    evidence_ids: list[str],
+) -> None:
+    evidence_map = {item.id: item for item in analysis.evidence}
+    source_map = {item.id: item for item in analysis.sources}
+
+    if not evidence_ids:
+        lines.append("  Evidence receipts: none")
+        return
+
+    lines.append("  Evidence receipts:")
+    for evidence_id in evidence_ids:
+        evidence = evidence_map.get(evidence_id)
+        if evidence is None:
+            lines.append(f"    - {evidence_id}: missing evidence record")
+            continue
+        source = source_map.get(evidence.source_id)
+        lines.append(f"    - Evidence ID: {evidence.id}")
+        if source is None:
+            lines.append(f"      Source ID: {evidence.source_id} (missing source record)")
+        else:
+            lines.append(f"      Source ID: {source.id}")
+            lines.append(f"      Source title: {source.title}")
+            lines.append(f"      Source type: {source.information_type.value}")
+            if source.url:
+                lines.append(f"      Source URL: {source.url}")
+        lines.append(f"      Locator: {evidence.locator or 'not recorded'}")
+        passage = evidence.snippet.replace("\n", "\n        ")
+        lines.append("      Exact passage:")
+        lines.append(f"        {passage}")
+
+
+def _append_audit_claim(
+    lines: list[str],
+    *,
+    analysis: AnalysisRun,
+    step: AnalysisStep,
+    claim,
+) -> None:
+    origin = _claim_origin(step, claim)
+    block_reason = _promotion_block_reason(step, claim)
+    lines.extend(
+        [
+            f"- Claim ID: {claim.id}",
+            f"  Origin: {origin}",
+            f"  Claim: {claim.text}",
+            f"  Verification: {claim.verification_status.value}",
+            (
+                "  Report promotion: INCLUDED"
+                if block_reason is None
+                else f"  Report promotion: BLOCKED — {block_reason}"
+            ),
+        ]
+    )
+    if claim.verification_note:
+        lines.append(f"  Verification note: {claim.verification_note}")
+    if claim.confidence:
+        lines.append(f"  Model confidence: {claim.confidence}")
     if origin == "human-edited" and claim.original_text:
         lines.append(f"  Original AI wording: {claim.original_text}")
-
     if claim.id in step.human_review.flagged_claim_ids:
         reason = _flag_reason(step, claim.id) or "Reason not recorded."
         lines.append(f"  FLAGGED BY REVIEWER: {reason}")
 
+    _append_evidence_receipts(
+        lines,
+        analysis=analysis,
+        evidence_ids=claim.evidence_ids,
+    )
 
-def _brief_text(analysis: AnalysisRun, steps: list[AnalysisStep]) -> str:
+
+def _audit_log_text(
+    analysis: AnalysisRun,
+    steps: list[AnalysisStep],
+) -> str:
     lines = [
+        "PolicyTrace Evidence Audit Log",
         f"Policy: {analysis.policy.title}",
+        f"Analysis run: {analysis.id}",
+        f"Final human review status: {analysis.final_review_status.value}",
         "",
         (
-            "Normal report findings below are limited to reviewed claims with "
-            "cited evidence and a semantic-verification status of supported or "
-            "partially_supported. Other reviewed findings are preserved under "
-            "Unresolved / audit-only findings instead of being silently promoted."
+            "This log preserves every reviewed structured finding, including "
+            "findings withheld from the leadership report. Evidence receipts "
+            "include the exact stored passage and source metadata."
         ),
     ]
-
-    unresolved: list[tuple[AnalysisStep, object, str]] = []
 
     for step in steps:
         lines.extend(
             [
                 "",
                 f"## {step.title}",
-                f"Step: {step.id} (version {step.version})",
-                "### Evidence-backed reviewed findings",
+                f"Step ID: {step.id}",
+                f"Step version: {step.version}",
+                f"Step status: {step.status.value}",
+                f"Human review: {step.human_review.status.value}",
             ]
         )
         if not step.claims:
             lines.append("- No structured claims in this reviewed section.")
-            continue
+        else:
+            for claim in step.claims:
+                _append_audit_claim(
+                    lines,
+                    analysis=analysis,
+                    step=step,
+                    claim=claim,
+                )
 
-        promoted = 0
-        for claim in step.claims:
-            block_reason = _promotion_block_reason(step, claim)
-            if block_reason is not None:
-                unresolved.append((step, claim, block_reason))
-                continue
-            _append_claim_trace(lines, step=step, claim=claim)
-            promoted += 1
-
-        if promoted == 0:
-            lines.append("- No findings from this section met report-promotion criteria.")
-
-    if unresolved:
-        lines.extend(
-            [
-                "",
-                "## Unresolved / audit-only findings",
-                (
-                    "These reviewed findings remain traceable but are not promoted "
-                    "into the normal report because an evidence, verification, or "
-                    "reviewer-flag gate is unresolved."
-                ),
-            ]
-        )
-        for step, claim, block_reason in unresolved:
-            lines.append(f"### {step.title} · {step.id}")
-            _append_claim_trace(
-                lines,
-                step=step,
-                claim=claim,
-                block_reason=block_reason,
-            )
+        if step.human_review.notes:
+            lines.append("Review notes:")
+            for note in step.human_review.notes:
+                lines.append(f"- {note}")
 
     return "\n".join(lines)
 
 
+def build_leadership_report_text(analysis: AnalysisRun) -> str:
+    checked = _validated_copy(analysis)
+    steps = _brief_eligible_steps(checked)
+    if not steps:
+        raise ValueError("cannot build leadership report without reviewed or accepted steps")
+    return _leadership_report_text(checked, steps)
+
+
+def build_evidence_audit_log(analysis: AnalysisRun) -> str:
+    checked = _validated_copy(analysis)
+    steps = _brief_eligible_steps(checked)
+    if not steps:
+        raise ValueError("cannot build evidence audit log without reviewed or accepted steps")
+    return _audit_log_text(checked, steps)
+
 def build_final_brief(analysis: AnalysisRun) -> AnalysisRun:
     """
-    Build a traceable final-brief draft without generating new policy claims.
+    Build the deterministic leadership-report draft without generating new claims.
 
-    The assembler copies reviewed/accepted claim text exactly and labels each copied
-    finding with its original claim ID, verification status, and evidence IDs.
+    Only reviewed findings that pass the evidence/verification promotion gate are
+    included in the leadership layer. Full receipts remain available separately in
+    the Evidence Audit Log.
     """
     updated = _validated_copy(analysis)
 
@@ -460,7 +565,7 @@ def build_final_brief(analysis: AnalysisRun) -> AnalysisRun:
         status=StepStatus.DRAFT,
         depends_on=[step.id for step in eligible],
         claims=[],
-        ai_output=_brief_text(updated, eligible),
+        ai_output=_leadership_report_text(updated, eligible),
         human_review=HumanReview(status=HumanReviewStatus.IN_REVIEW),
         version=previous_version + 1,
     )
