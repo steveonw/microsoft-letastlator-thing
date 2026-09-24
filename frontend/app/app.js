@@ -580,9 +580,14 @@ function renderNewsStatus() {
     metric("window end", newsStatus.window_end || "—")
   );
   byId("news-warning").textContent = newsStatus.limitation || "";
-  byId("news-detail").textContent =
-    `Query: ${newsStatus.query || "—"}` +
-    (newsStatus.checked_at ? ` · Checked: ${newsStatus.checked_at}` : "");
+  const attempts = (newsStatus.provider_attempts || [])
+    .map((attempt) => `${attempt.provider}: ${attempt.status} — ${attempt.detail}`)
+    .join(" · ");
+  byId("news-detail").textContent = [
+    `Query: ${newsStatus.query || "—"}`,
+    newsStatus.checked_at ? `Checked: ${newsStatus.checked_at}` : "",
+    attempts ? `Provider path: ${attempts}` : "",
+  ].filter(Boolean).join(" · ");
 
   const list = byId("news-list");
   list.replaceChildren();
@@ -612,6 +617,13 @@ function renderNewsStatus() {
       link.rel = "noopener";
       link.textContent = "Open original article";
       item.append(link);
+
+      const archive = document.createElement("a");
+      archive.href = `https://web.archive.org/web/*/${source.url}`;
+      archive.target = "_blank";
+      archive.rel = "noopener";
+      archive.textContent = "View archive history";
+      item.append(" · ", archive);
     }
     list.append(item);
   }
@@ -628,7 +640,7 @@ async function refreshNewsStatus() {
 async function discoverNews() {
   const query = byId("news-query").value.trim();
   const maxArticles = Number(byId("max-news").value || 8);
-  banner("Finding recent related factual reporting.");
+  banner("Searching historical and recent factual-reporting sources.");
   const data = await api("/api/news", {
     query,
     max_articles: maxArticles,
@@ -643,8 +655,8 @@ async function discoverNews() {
   const count = (data.sources || []).length;
   banner(
     count
-      ? `Found ${count} recent factual-reporting source pointer${count === 1 ? "" : "s"}.`
-      : "No recent related reporting was returned by the discovery source.",
+      ? `Found ${count} factual-reporting source pointer${count === 1 ? "" : "s"}.`
+      : "No related reporting was returned by the available discovery sources.",
     "info"
   );
 }
@@ -1297,6 +1309,7 @@ async function saveProvider() {
     api_key: apiKey,
     bearer_token: bearer,
     regulations_api_key: byId("regs-key").value.trim(),
+    media_cloud_api_key: byId("mediacloud-key").value.trim(),
   };
 
   const status = await api("/api/provider", payload);
@@ -1307,6 +1320,7 @@ async function saveProvider() {
   if (status.has_api_key) parts.push("API key set");
   if (status.has_bearer_token) parts.push("bearer token set");
   if (status.has_regulations_api_key) parts.push("Regulations.gov key set");
+  if (status.has_media_cloud_api_key) parts.push("Media Cloud key set");
   byId("provider-state").textContent = parts.join(" · ");
   banner("Settings saved. They stay in this server's memory only.", "info");
 }
