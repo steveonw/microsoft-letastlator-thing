@@ -602,34 +602,37 @@ function renderNewsStatus() {
 
   const list = byId("news-list");
   list.replaceChildren();
-  for (const source of sources) {
-    const item = document.createElement("article");
-    item.className = "news-item";
+  list.hidden = Boolean(run);
+  if (!run) {
+    for (const source of sources) {
+      const item = document.createElement("article");
+      item.className = "news-item";
 
-    const tag = document.createElement("span");
-    tag.className = "tag type-factual_reporting";
-    tag.textContent = "factual reporting";
+      const tag = document.createElement("span");
+      tag.className = "tag type-factual_reporting";
+      tag.textContent = "factual reporting";
 
-    const title = document.createElement("strong");
-    title.textContent = source.title || "Untitled article";
+      const title = document.createElement("strong");
+      title.textContent = source.title || "Untitled article";
 
-    const meta = document.createElement("p");
-    meta.className = "muted small";
-    meta.textContent = [
-      source.agency || "",
-      source.published_at || "",
-    ].filter(Boolean).join(" · ");
+      const meta = document.createElement("p");
+      meta.className = "muted small";
+      meta.textContent = [
+        source.agency || "",
+        source.published_at || "",
+      ].filter(Boolean).join(" · ");
 
-    item.append(tag, title, meta);
-    if (source.url) {
-      const link = document.createElement("a");
-      link.href = source.url;
-      link.target = "_blank";
-      link.rel = "noopener";
-      link.textContent = "Open original article";
-      item.append(link);
+      item.append(tag, title, meta);
+      if (source.url) {
+        const link = document.createElement("a");
+        link.href = source.url;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = "Open original article";
+        item.append(link);
+      }
+      list.append(item);
     }
-    list.append(item);
   }
 }
 
