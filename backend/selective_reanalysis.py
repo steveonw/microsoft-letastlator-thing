@@ -12,6 +12,7 @@ from models import (
     HumanReviewStatus,
     InformationType,
     StepKind,
+    VerificationStatus,
     StepStatus,
 )
 
@@ -300,15 +301,75 @@ def _flag_reason(step: AnalysisStep, claim_id: str) -> str | None:
     return None
 
 
+def _claim_origin(step: AnalysisStep, claim) -> str:
+    human_edited = (
+        claim.id in step.human_review.edited_claim_ids
+        or claim.information_type == InformationType.HUMAN_INTERPRETATION
+    )
+    return "human-edited" if human_edited else "AI-generated"
+
+
+def _promotion_block_reason(step: AnalysisStep, claim) -> str | None:
+    if not claim.evidence_ids:
+        return "No cited evidence is attached to this finding."
+
+    if claim.id in step.human_review.flagged_claim_ids:
+        reason = _flag_reason(step, claim.id) or "Reason not recorded."
+        return f"Reviewer flag remains unresolved: {reason}"
+
+    if claim.verification_status not in {
+        VerificationStatus.SUPPORTED,
+        VerificationStatus.PARTIALLY_SUPPORTED,
+    }:
+        return (
+            "Verification status is "
+            f"{claim.verification_status.value}; normal report promotion "
+            "requires supported or partially_supported."
+        )
+
+    return None
+
+
+def _append_claim_trace(
+    lines: list[str],
+    *,
+    step: AnalysisStep,
+    claim,
+    block_reason: str | None = None,
+) -> None:
+    evidence = ", ".join(claim.evidence_ids) if claim.evidence_ids else "none"
+    origin = _claim_origin(step, claim)
+    lines.extend(
+        [
+            f"- [{claim.id}] ({origin}) {claim.text}",
+            f"  Verification: {claim.verification_status.value}",
+            f"  Evidence: {evidence}",
+        ]
+    )
+    if block_reason:
+        lines.append(f"  Report promotion: BLOCKED — {block_reason}")
+
+    if origin == "human-edited" and claim.original_text:
+        lines.append(f"  Original AI wording: {claim.original_text}")
+
+    if claim.id in step.human_review.flagged_claim_ids:
+        reason = _flag_reason(step, claim.id) or "Reason not recorded."
+        lines.append(f"  FLAGGED BY REVIEWER: {reason}")
+
+
 def _brief_text(analysis: AnalysisRun, steps: list[AnalysisStep]) -> str:
     lines = [
         f"Policy: {analysis.policy.title}",
         "",
         (
-            "This draft contains only reviewed or accepted structured findings. "
-            "Claim wording is copied verbatim from the reviewed AnalysisRun."
+            "Normal report findings below are limited to reviewed claims with "
+            "cited evidence and a semantic-verification status of supported or "
+            "partially_supported. Other reviewed findings are preserved under "
+            "Unresolved / audit-only findings instead of being silently promoted."
         ),
     ]
+
+    unresolved: list[tuple[AnalysisStep, object, str]] = []
 
     for step in steps:
         lines.extend(
@@ -316,32 +377,45 @@ def _brief_text(analysis: AnalysisRun, steps: list[AnalysisStep]) -> str:
                 "",
                 f"## {step.title}",
                 f"Step: {step.id} (version {step.version})",
+                "### Evidence-backed reviewed findings",
             ]
         )
         if not step.claims:
             lines.append("- No structured claims in this reviewed section.")
             continue
 
+        promoted = 0
         for claim in step.claims:
-            evidence = ", ".join(claim.evidence_ids) if claim.evidence_ids else "none"
-            human_edited = (
-                claim.id in step.human_review.edited_claim_ids
-                or claim.information_type == InformationType.HUMAN_INTERPRETATION
-            )
-            origin = "human-edited" if human_edited else "AI-generated"
-            lines.extend(
-                [
-                    f"- [{claim.id}] ({origin}) {claim.text}",
-                    f"  Verification: {claim.verification_status.value}",
-                    f"  Evidence: {evidence}",
-                ]
-            )
-            if human_edited and claim.original_text:
-                lines.append(f"  Original AI wording: {claim.original_text}")
+            block_reason = _promotion_block_reason(step, claim)
+            if block_reason is not None:
+                unresolved.append((step, claim, block_reason))
+                continue
+            _append_claim_trace(lines, step=step, claim=claim)
+            promoted += 1
 
-            if claim.id in step.human_review.flagged_claim_ids:
-                reason = _flag_reason(step, claim.id) or "Reason not recorded."
-                lines.append(f"  FLAGGED BY REVIEWER: {reason}")
+        if promoted == 0:
+            lines.append("- No findings from this section met report-promotion criteria.")
+
+    if unresolved:
+        lines.extend(
+            [
+                "",
+                "## Unresolved / audit-only findings",
+                (
+                    "These reviewed findings remain traceable but are not promoted "
+                    "into the normal report because an evidence, verification, or "
+                    "reviewer-flag gate is unresolved."
+                ),
+            ]
+        )
+        for step, claim, block_reason in unresolved:
+            lines.append(f"### {step.title} · {step.id}")
+            _append_claim_trace(
+                lines,
+                step=step,
+                claim=claim,
+                block_reason=block_reason,
+            )
 
     return "\n".join(lines)
 
