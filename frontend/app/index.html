@@ -11,7 +11,7 @@
     <div class="brand">
       <span class="mark">PolicyTrace</span>
       <span class="tagline">Every finding traced to the source text</span>
-      <span id="build-marker" class="build-marker">build 12</span>
+      <span id="build-marker" class="build-marker">build 13</span>
     </div>
     <div class="topbar-right">
       <span id="mode-pill" class="pill">not started</span>
@@ -198,16 +198,26 @@
 
     <section id="brief-screen" class="brief" hidden>
       <div class="col-head">
-        <h1>Final brief</h1>
+        <h1 id="report-title">Leadership Report</h1>
         <div>
           <button id="back-to-work" type="button" class="ghost">Back to review</button>
-          <button id="copy-brief" type="button">Copy brief</button>
-          <button id="approve-brief" type="button" class="primary">Approve final brief</button>
+          <button id="copy-brief" type="button">Copy report</button>
+          <button id="approve-brief" type="button" class="primary">Approve leadership report</button>
         </div>
       </div>
-      <p class="muted">
-        Assembled only from findings you reviewed. Each line says whether the
-        wording is the model's or yours.
+
+      <div class="report-tabs" role="tablist" aria-label="Final outputs">
+        <button id="show-leadership" type="button" class="report-tab active">
+          Leadership Report
+        </button>
+        <button id="show-audit" type="button" class="report-tab">
+          Evidence Audit Log
+        </button>
+      </div>
+
+      <p id="report-description" class="muted">
+        A concise leadership-facing report assembled only from reviewed,
+        evidence-backed findings. Claim IDs link every line to the audit log.
       </p>
       <p id="brief-notice" class="brief-notice" hidden></p>
       <pre id="brief-text"></pre>
