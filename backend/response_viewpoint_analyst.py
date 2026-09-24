@@ -72,6 +72,7 @@ Rules:
 - Do not reduce the material to a single sentiment score.
 - Preserve meaningful disagreement, mixed reactions, and distinct/conflicting viewpoints. Do not label a viewpoint as a minority unless the supplied material actually establishes prevalence.
 - Do not infer motives that are not stated or directly supported.
+- Keep each finding atomic: one main reason, concern, question, or viewpoint per finding. Split independent ideas instead of bundling several claims together.
 - Every finding must cite 1 to 5 exact verbatim quotes.
 - Every evidence reference must identify the exact source_id containing that quote.
 - source_type must match the cited source type.
