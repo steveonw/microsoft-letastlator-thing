@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import run_full_stack_guide as full_stack
-from models import AnalysisMode, HumanReviewStatus, StepStatus
+from models import AnalysisMode, HumanReviewStatus, StepKind, StepStatus
 from run_full_stack_guide import GuideState
 from response_sources import CommentFetchFailure
 
