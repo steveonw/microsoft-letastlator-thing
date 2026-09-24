@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 from difflib import SequenceMatcher
+from collections import defaultdict
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -82,6 +83,12 @@ _NUMBER_RE = re.compile(
     r"operations?|OP/s|hours?|days?|weeks?|months?|quarters?|years?)\b",
     re.IGNORECASE,
 )
+_WORD_RE = re.compile(r"[a-z0-9]+(?:\^[a-z0-9]+)?", re.IGNORECASE)
+MAX_FUZZY_CANDIDATES = 5
+MAX_TOKEN_POSTINGS = 48
+MIN_CHEAP_CANDIDATE_SCORE = 0.12
+MIN_SEQUENCE_MATCH_RATIO = 0.38
+
 _STAKEHOLDER_TERMS = (
     "covered u.s. person",
     "covered person",
@@ -290,31 +297,193 @@ def _make_change(
     )
 
 
+def _word_tokens(text: str) -> set[str]:
+    return {
+        match.group(0).casefold()
+        for match in _WORD_RE.finditer(text)
+        if len(match.group(0)) >= 2
+    }
+
+
+def _word_similarity(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    shared = len(left & right)
+    return (2.0 * shared) / (len(left) + len(right))
+
+
+def _relative_position_score(
+    before_index: int,
+    before_count: int,
+    after_index: int,
+    after_count: int,
+) -> float:
+    if before_count <= 1 or after_count <= 1:
+        return 1.0
+    before_pos = before_index / (before_count - 1)
+    after_pos = after_index / (after_count - 1)
+    return max(0.0, 1.0 - abs(before_pos - after_pos))
+
+
+def _exact_pairs(
+    before_units: list[_Unit],
+    after_units: list[_Unit],
+) -> tuple[
+    list[tuple[_Unit, _Unit]],
+    set[int],
+    set[int],
+]:
+    after_by_text: dict[str, list[int]] = defaultdict(list)
+    for index, unit in enumerate(after_units):
+        after_by_text[unit.normalized].append(index)
+
+    pairs: list[tuple[_Unit, _Unit]] = []
+    used_before: set[int] = set()
+    used_after: set[int] = set()
+
+    for before_index, before in enumerate(before_units):
+        choices = [
+            index
+            for index in after_by_text.get(before.normalized, [])
+            if index not in used_after
+        ]
+        if not choices:
+            continue
+        after_index = min(
+            choices,
+            key=lambda index: (
+                -_relative_position_score(
+                    before_index,
+                    len(before_units),
+                    index,
+                    len(after_units),
+                ),
+                index,
+            ),
+        )
+        used_before.add(before_index)
+        used_after.add(after_index)
+        pairs.append((before, after_units[after_index]))
+
+    return pairs, used_before, used_after
+
+
+def _candidate_after_indices(
+    *,
+    before_index: int,
+    before_tokens: set[str],
+    token_index: dict[str, list[int]],
+    after_token_sets: list[set[str]],
+    before_count: int,
+    after_count: int,
+    excluded_after: set[int],
+) -> list[int]:
+    candidate_indices: set[int] = set()
+
+    # Like Read-Aloud's edited-sentence resolver: use cheap word overlap to
+    # shortlist plausible places, then reserve SequenceMatcher for only the
+    # strongest candidates. Very common tokens are deliberately ignored.
+    for token in before_tokens:
+        postings = token_index.get(token, [])
+        if len(postings) <= MAX_TOKEN_POSTINGS:
+            candidate_indices.update(postings)
+
+    candidate_indices.difference_update(excluded_after)
+
+    # If token lookup finds nothing, fall back to a small relative-position
+    # neighborhood rather than comparing against the whole changed block.
+    if not candidate_indices and after_count:
+        if before_count <= 1:
+            center = 0
+        else:
+            center = round(
+                (before_index / (before_count - 1))
+                * max(0, after_count - 1)
+            )
+        for offset in range(-2, 3):
+            index = center + offset
+            if 0 <= index < after_count and index not in excluded_after:
+                candidate_indices.add(index)
+
+    scored: list[tuple[float, int]] = []
+    for after_index in candidate_indices:
+        overlap = _word_similarity(
+            before_tokens,
+            after_token_sets[after_index],
+        )
+        position = _relative_position_score(
+            before_index,
+            before_count,
+            after_index,
+            after_count,
+        )
+        score = overlap + 0.08 * position
+        if score >= MIN_CHEAP_CANDIDATE_SCORE:
+            scored.append((score, after_index))
+
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [
+        after_index
+        for _, after_index in scored[:MAX_FUZZY_CANDIDATES]
+    ]
+
+
 def _pair_replacements(
     before_units: list[_Unit],
     after_units: list[_Unit],
 ) -> tuple[list[tuple[_Unit, _Unit]], list[_Unit], list[_Unit]]:
-    candidates: list[tuple[float, int, int]] = []
+    pairs, used_before, used_after = _exact_pairs(
+        before_units,
+        after_units,
+    )
+
+    after_token_sets = [
+        _word_tokens(unit.normalized)
+        for unit in after_units
+    ]
+    token_index: dict[str, list[int]] = defaultdict(list)
+    for after_index, tokens in enumerate(after_token_sets):
+        for token in tokens:
+            token_index[token].append(after_index)
+
+    candidates: list[tuple[float, float, int, int]] = []
     for before_index, before in enumerate(before_units):
-        for after_index, after in enumerate(after_units):
+        if before_index in used_before:
+            continue
+        before_tokens = _word_tokens(before.normalized)
+        shortlist = _candidate_after_indices(
+            before_index=before_index,
+            before_tokens=before_tokens,
+            token_index=token_index,
+            after_token_sets=after_token_sets,
+            before_count=len(before_units),
+            after_count=len(after_units),
+            excluded_after=used_after,
+        )
+
+        for after_index in shortlist:
+            after = after_units[after_index]
             ratio = SequenceMatcher(
                 None,
                 before.normalized,
                 after.normalized,
                 autojunk=False,
             ).ratio()
-            if ratio >= 0.38:
-                candidates.append((ratio, before_index, after_index))
+            if ratio < MIN_SEQUENCE_MATCH_RATIO:
+                continue
+            cheap_score = _word_similarity(
+                before_tokens,
+                after_token_sets[after_index],
+            )
+            candidates.append(
+                (ratio, cheap_score, before_index, after_index)
+            )
 
-    pairs: list[tuple[_Unit, _Unit]] = []
-    used_before: set[int] = set()
-    used_after: set[int] = set()
-
-    for ratio, before_index, after_index in sorted(
+    for ratio, cheap_score, before_index, after_index in sorted(
         candidates,
-        key=lambda item: (-item[0], item[1], item[2]),
+        key=lambda item: (-item[0], -item[1], item[2], item[3]),
     ):
-        del ratio
+        del ratio, cheap_score
         if before_index in used_before or after_index in used_after:
             continue
         used_before.add(before_index)
