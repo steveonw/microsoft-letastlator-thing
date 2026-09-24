@@ -215,7 +215,7 @@ class TrustUxCleanupTests(unittest.TestCase):
     def test_phase_seven_build_marker_is_visible(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         html = index_path.read_text(encoding="utf-8")
-        self.assertIn(">build 18<", html)
+        self.assertIn(">build 19<", html)
 
     def test_analysis_prompts_request_atomic_findings(self) -> None:
         policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
@@ -265,6 +265,28 @@ class FinalOutputSeparationTests(unittest.TestCase):
         self.assertIn("PolicyTrace Evidence Audit Log", audit)
         self.assertIn("Exact passage:", audit)
         self.assertIn("Evidence ID:", audit)
+
+
+class NewsReportOrderingTests(unittest.TestCase):
+    def test_news_is_last_supplemental_section_in_report_and_audit(self) -> None:
+        guide_path = full_stack.ROOT / "backend" / "run_full_stack_guide.py"
+        source = guide_path.read_text(encoding="utf-8")
+
+        brief_block = source.split("    def brief(self)", 1)[1].split(
+            "    def evidence_audit_log", 1
+        )[0]
+        audit_block = source.split("    def evidence_audit_log", 1)[1].split(
+            "    def approve_final_brief", 1
+        )[0]
+
+        self.assertLess(
+            brief_block.index("self._corpus_brief_text()"),
+            brief_block.index("self._news_brief_text()"),
+        )
+        self.assertLess(
+            audit_block.index("self._corpus_brief_text()"),
+            audit_block.index("self._news_audit_text()"),
+        )
 
 
 class RevisionComparisonVisibilityTests(unittest.TestCase):
@@ -333,6 +355,8 @@ class FactualReportingVisibilityTests(unittest.TestCase):
         self.assertIn("/api/news/status", source)
         self.assertIn("type-factual_reporting", source)
         self.assertIn("Open original article", source)
+        self.assertNotIn("View archive history", source)
+        self.assertIn('metric("coverage", "provider-specific")', source)
 
 
 class PolicyFreshnessVisibilityTests(unittest.TestCase):
