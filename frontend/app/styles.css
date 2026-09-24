@@ -80,7 +80,8 @@ button.ghost { background: transparent; }
 .policy-head { margin-bottom: 16px; }
 
 .corpus-card,
-.status-card {
+.status-card,
+.revision-card {
   margin: 0 0 16px;
   padding: 14px;
   background: var(--panel);
@@ -89,9 +90,11 @@ button.ghost { background: transparent; }
   box-shadow: var(--shadow);
 }
 .corpus-card h2,
-.status-card h2 { margin-bottom: 0; }
+.status-card h2,
+.revision-card h2 { margin-bottom: 0; }
 .corpus-metrics,
-.status-metrics {
+.status-metrics,
+.revision-metrics {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
@@ -256,7 +259,8 @@ button.ghost { background: transparent; }
   .columns { grid-template-columns: 1fr; }
   .choices { grid-template-columns: 1fr; }
   .corpus-metrics,
-  .status-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .status-metrics,
+  .revision-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .brief-notice {
@@ -334,3 +338,42 @@ button.ghost { background: transparent; }
   cursor: progress;
   opacity: 0.72;
 }
+
+.revision-control {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f9fb;
+}
+.revision-control label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.revision-control input {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.revision-changes { margin-top: 12px; }
+.revision-change {
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+.revision-change summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.revision-change p {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+.revision-before { color: var(--bad); }
+.revision-after { color: var(--good); }
+.revision-change a { color: var(--accent); }
