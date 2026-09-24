@@ -311,7 +311,7 @@ class RevisionPreviewVisibilityTests(unittest.TestCase):
         self.assertIn('id="review-actionbar"', html)
         self.assertIn("function renderComparisonPreview()", source)
         self.assertIn(
-            'byId("workspace").hidden = !started && !revisionComparison?.available;',
+            '!started && !revisionComparison?.available && !newsStatus?.available;',
             source,
         )
         self.assertIn('byId("review-columns").hidden = !started;', source)
