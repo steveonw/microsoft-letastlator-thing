@@ -4,6 +4,7 @@ import re
 from datetime import date
 from difflib import SequenceMatcher
 from collections import defaultdict
+from time import perf_counter
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -52,6 +53,9 @@ class RevisionComparison(StrictModel):
     changed_count: int = Field(ge=0)
     tag_counts: dict[str, int] = Field(default_factory=dict)
     potentially_affected_claim_ids: list[str] = Field(default_factory=list)
+    comparison_seconds: float = Field(ge=0)
+    from_unit_count: int = Field(ge=0)
+    to_unit_count: int = Field(ge=0)
     warning: str = (
         "This is a deterministic text comparison. It identifies changed source "
         "language but does not by itself establish the legal or policy effect of a change."
@@ -667,6 +671,7 @@ def compare_documents(
     ):
         before_document, after_document = second, first
 
+    comparison_started = perf_counter()
     before_units = _text_units(before_document.raw_text)
     after_units = _text_units(after_document.raw_text)
     before_keys = [unit.normalized for unit in before_units]
@@ -781,6 +786,9 @@ def compare_documents(
         removed_count=sum(change.kind == "removed" for change in changes),
         changed_count=sum(change.kind == "changed" for change in changes),
         tag_counts=tag_counts,
+        comparison_seconds=round(perf_counter() - comparison_started, 3),
+        from_unit_count=len(before_units),
+        to_unit_count=len(after_units),
     )
 
 
