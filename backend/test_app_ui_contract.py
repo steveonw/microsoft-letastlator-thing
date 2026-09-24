@@ -212,10 +212,10 @@ class TrustUxCleanupTests(unittest.TestCase):
         self.assertIn("if (!(reviewed && allContentReviewed()))", source)
         self.assertIn('add("Build final brief"', source)
 
-    def test_phase_five_build_marker_is_visible(self) -> None:
+    def test_phase_six_build_marker_is_visible(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         html = index_path.read_text(encoding="utf-8")
-        self.assertIn(">build 12<", html)
+        self.assertIn(">build 13<", html)
 
     def test_analysis_prompts_request_atomic_findings(self) -> None:
         policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
@@ -225,6 +225,46 @@ class TrustUxCleanupTests(unittest.TestCase):
 
         self.assertIn("Keep each finding atomic", policy_source)
         self.assertIn("Keep each finding atomic", response_source)
+
+
+class FinalOutputSeparationTests(unittest.TestCase):
+    def test_product_ui_has_separate_leadership_and_audit_views(self) -> None:
+        index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        html = index_path.read_text(encoding="utf-8")
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn('id="show-leadership"', html)
+        self.assertIn('id="show-audit"', html)
+        self.assertIn("Leadership Report", html)
+        self.assertIn("Evidence Audit Log", html)
+        self.assertIn("/api/audit-log", source)
+        self.assertIn("reportView", source)
+
+    def test_evidence_audit_log_keeps_receipts_separate_from_report(self) -> None:
+        state = GuideState()
+        policy_run, response_run = full_stack.make_rush_inputs()
+        state.policy_analysis = policy_run
+        state.response_analysis = response_run
+        state.analysis = full_stack._guided_combined(policy_run, response_run)
+
+        state.guided_begin(None)
+        while state.analysis.current_step_id is not None:
+            state.guided_next()
+
+        briefed = state.brief()
+        leadership = next(
+            step.ai_output
+            for step in briefed.steps
+            if step.kind == StepKind.DRAFT_BRIEF
+        )
+        audit = state.evidence_audit_log()
+
+        self.assertIn("PolicyTrace Leadership Report", leadership)
+        self.assertNotIn("Exact passage:", leadership)
+        self.assertIn("PolicyTrace Evidence Audit Log", audit)
+        self.assertIn("Exact passage:", audit)
+        self.assertIn("Evidence ID:", audit)
 
 
 class PolicyFreshnessVisibilityTests(unittest.TestCase):
