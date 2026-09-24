@@ -16,6 +16,7 @@ let selectedClaimId = null;
 let editingClaimId = null;
 let flaggingClaimId = null;
 let corpusStatus = null;
+let policyStatus = null;
 let apiRequestInFlight = false;
 
 const byId = (id) => document.getElementById(id);
@@ -231,12 +232,72 @@ function render() {
   const bits = [run.policy?.jurisdiction, run.policy?.version].filter(Boolean);
   byId("policy-meta").textContent = bits.join(" · ");
   byId("review-state").textContent = say(run.final_review_status);
+  renderPolicyStatus();
   renderCorpusStatus();
 
   renderSections();
   renderFindings();
   renderEvidence();
   renderActions();
+}
+
+function renderPolicyStatus() {
+  const card = byId("policy-status-card");
+  if (!card) return;
+
+  if (!policyStatus || (!policyStatus.document_number && !policyStatus.rin)) {
+    card.hidden = true;
+    return;
+  }
+
+  card.hidden = false;
+  const metrics = byId("policy-status-metrics");
+  metrics.replaceChildren(
+    metric("source document", policyStatus.document_number || "—"),
+    metric("document type", policyStatus.document_type || "—"),
+    metric("source date", policyStatus.source_publication_date || "—"),
+    metric("RIN", policyStatus.rin || "—")
+  );
+
+  const warning = byId("policy-status-warning");
+  const health = byId("policy-status-health");
+  if (!policyStatus.available) {
+    health.textContent = "status check unavailable";
+    health.className = "pill corpus-gap";
+    warning.textContent = policyStatus.freshness_message || "";
+  } else if (policyStatus.later_material_action_found) {
+    health.textContent = "later action found";
+    health.className = "pill status-later";
+    warning.textContent = policyStatus.freshness_message || "";
+  } else {
+    health.textContent = "status checked";
+    health.className = "pill corpus-ok";
+    warning.textContent = policyStatus.freshness_message || "";
+  }
+
+  const detail = [
+    policyStatus.status_label ? `Status: ${policyStatus.status_label}` : "",
+    policyStatus.agenda_stage ? `Agenda stage: ${policyStatus.agenda_stage}` : "",
+    policyStatus.rin_status ? `RIN status: ${policyStatus.rin_status}` : "",
+    policyStatus.checked_at ? `Checked: ${policyStatus.checked_at}` : "",
+  ].filter(Boolean);
+  byId("policy-status-detail").textContent = detail.join(" · ");
+
+  const link = byId("policy-status-link");
+  if (policyStatus.source_url) {
+    link.href = policyStatus.source_url;
+    link.hidden = false;
+  } else {
+    link.hidden = true;
+  }
+}
+
+async function refreshPolicyStatus() {
+  const status = await api("/api/source/policy/status");
+  if (!status) return null;
+  policyStatus = status;
+  if (run) renderPolicyStatus();
+  return status;
 }
 
 function metric(label, value) {
@@ -882,6 +943,7 @@ async function loadPolicy() {
     editingClaimId = null;
     flaggingClaimId = null;
     corpusStatus = null;
+    policyStatus = await refreshPolicyStatus();
     const title = updated.policy?.title || documentNumber;
     byId("source-state").textContent =
       `Policy ready: ${title}. Load public comments if you want them, then choose a review mode above.`;
@@ -980,6 +1042,7 @@ async function start(mode) {
     run = started;
     selectedStepId = started.current_step_id ?? null;
     selectedClaimId = null;
+    if (!policyStatus) await refreshPolicyStatus();
     if (!corpusStatus) await refreshCorpusStatus();
     render();
   }
@@ -1006,6 +1069,7 @@ function boot() {
     editingClaimId = null;
     flaggingClaimId = null;
     corpusStatus = null;
+    policyStatus = null;
     byId("brief-screen").hidden = true;
     banner("");
     render();
