@@ -11,7 +11,7 @@
     <div class="brand">
       <span class="mark">PolicyTrace</span>
       <span class="tagline">Every finding traced to the source text</span>
-      <span id="build-marker" class="build-marker">build 8</span>
+      <span id="build-marker" class="build-marker">build 9</span>
     </div>
     <div class="topbar-right">
       <span id="mode-pill" class="pill">not started</span>
@@ -140,6 +140,19 @@
         <h1 id="policy-title">&nbsp;</h1>
         <p id="policy-meta" class="muted"></p>
       </div>
+
+      <section id="policy-status-card" class="status-card" hidden>
+        <div class="col-head">
+          <h2>Current status / freshness</h2>
+          <span id="policy-status-health" class="pill"></span>
+        </div>
+        <div id="policy-status-metrics" class="status-metrics"></div>
+        <p id="policy-status-warning" class="status-warning"></p>
+        <p id="policy-status-detail" class="muted small"></p>
+        <a id="policy-status-link" href="#" target="_blank" rel="noopener" hidden>
+          Open official status source
+        </a>
+      </section>
 
       <section id="corpus-card" class="corpus-card" hidden>
         <div class="col-head">
