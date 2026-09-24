@@ -357,7 +357,8 @@ function renderCorpusStatus() {
     corpusStatus.docket_id ? `Docket: ${corpusStatus.docket_id}` : "",
     `Unusable retrieved: ${corpusStatus.unusable_retrieval_count || 0}`,
     `PII-pattern redactions: ${corpusStatus.pii_redacted_count || 0}`,
-    `Degraded extraction: ${corpusStatus.degraded_source_count || 0}`,
+    `Degraded source records: ${corpusStatus.degraded_source_count || 0}`,
+    `Degraded attachments: ${corpusStatus.degraded_attachment_count || 0}`,
     types ? `Source types: ${types}` : "",
   ].filter(Boolean);
   byId("corpus-detail").textContent = details.join(" · ");
