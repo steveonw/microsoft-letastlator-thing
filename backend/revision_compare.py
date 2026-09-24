@@ -87,7 +87,12 @@ _WORD_RE = re.compile(r"[a-z0-9]+(?:\^[a-z0-9]+)?", re.IGNORECASE)
 MAX_FUZZY_CANDIDATES = 5
 MAX_TOKEN_POSTINGS = 48
 MIN_CHEAP_CANDIDATE_SCORE = 0.12
-MIN_SEQUENCE_MATCH_RATIO = 0.38
+MIN_SEQUENCE_MATCH_RATIO = 0.48
+CRIB_WIDTH = 4
+MAX_CRIB_POSTINGS = 2
+SEQUENCE_CORRIDOR_RADIUS = 3
+FUZZY_HEAD_CHARS = 600
+FUZZY_TAIL_CHARS = 300
 
 _STAKEHOLDER_TERMS = (
     "covered u.s. person",
@@ -312,6 +317,127 @@ def _word_similarity(left: set[str], right: set[str]) -> float:
     return (2.0 * shared) / (len(left) + len(right))
 
 
+def _phrase_cribs(text: str, *, width: int = CRIB_WIDTH) -> set[tuple[str, ...]]:
+    tokens = [match.group(0).casefold() for match in _WORD_RE.finditer(text)]
+    if len(tokens) < width:
+        return set()
+    return {
+        tuple(tokens[index:index + width])
+        for index in range(len(tokens) - width + 1)
+        if not all(token.isdigit() for token in tokens[index:index + width])
+    }
+
+
+def _rare_crib_candidates(
+    before_units: list[_Unit],
+    after_units: list[_Unit],
+) -> tuple[dict[int, dict[int, int]], list[tuple[int, int]]]:
+    before_cribs = [_phrase_cribs(unit.normalized) for unit in before_units]
+    after_cribs = [_phrase_cribs(unit.normalized) for unit in after_units]
+
+    before_postings: dict[tuple[str, ...], list[int]] = defaultdict(list)
+    after_postings: dict[tuple[str, ...], list[int]] = defaultdict(list)
+    for index, cribs in enumerate(before_cribs):
+        for crib in cribs:
+            before_postings[crib].append(index)
+    for index, cribs in enumerate(after_cribs):
+        for crib in cribs:
+            after_postings[crib].append(index)
+
+    votes: dict[int, dict[int, int]] = defaultdict(lambda: defaultdict(int))
+    for crib, before_indices in before_postings.items():
+        after_indices = after_postings.get(crib, [])
+        if not after_indices:
+            continue
+        if (
+            len(before_indices) > MAX_CRIB_POSTINGS
+            or len(after_indices) > MAX_CRIB_POSTINGS
+        ):
+            continue
+        for before_index in before_indices:
+            for after_index in after_indices:
+                votes[before_index][after_index] += 1
+
+    raw_anchors: list[tuple[int, int, int]] = []
+    for before_index, matches in votes.items():
+        if not matches:
+            continue
+        after_index, count = max(
+            matches.items(),
+            key=lambda item: (item[1], -item[0]),
+        )
+        if count >= 2:
+            raw_anchors.append((before_index, after_index, count))
+
+    # Patience-diff style monotonic anchors: distinctive shared phrases act as
+    # "cribs" and establish a sequence corridor without forcing moved text to
+    # stay local. The global token index below can still recover true moves.
+    anchors: list[tuple[int, int]] = []
+    last_after = -1
+    used_after: set[int] = set()
+    for before_index, after_index, _ in sorted(
+        raw_anchors,
+        key=lambda item: (item[0], -item[2], item[1]),
+    ):
+        if after_index <= last_after or after_index in used_after:
+            continue
+        anchors.append((before_index, after_index))
+        used_after.add(after_index)
+        last_after = after_index
+
+    return {
+        before_index: dict(matches)
+        for before_index, matches in votes.items()
+    }, anchors
+
+
+def _sequence_expected_index(
+    before_index: int,
+    *,
+    before_count: int,
+    after_count: int,
+    anchors: list[tuple[int, int]],
+) -> int:
+    if after_count <= 1:
+        return 0
+    if before_count <= 1:
+        return 0
+
+    left: tuple[int, int] | None = None
+    right: tuple[int, int] | None = None
+    for anchor_before, anchor_after in anchors:
+        if anchor_before <= before_index:
+            left = (anchor_before, anchor_after)
+        if anchor_before >= before_index:
+            right = (anchor_before, anchor_after)
+            break
+
+    if left and right and left[0] != right[0]:
+        span = right[0] - left[0]
+        fraction = (before_index - left[0]) / span
+        expected = round(left[1] + fraction * (right[1] - left[1]))
+    elif left:
+        expected = left[1] + (before_index - left[0])
+    elif right:
+        expected = right[1] - (right[0] - before_index)
+    else:
+        expected = round(
+            (before_index / (before_count - 1))
+            * (after_count - 1)
+        )
+    return max(0, min(after_count - 1, expected))
+
+
+def _bounded_fuzzy_text(text: str) -> str:
+    if len(text) <= FUZZY_HEAD_CHARS + FUZZY_TAIL_CHARS:
+        return text
+    return (
+        text[:FUZZY_HEAD_CHARS]
+        + " ... "
+        + text[-FUZZY_TAIL_CHARS:]
+    )
+
+
 def _relative_position_score(
     before_index: int,
     before_count: int,
@@ -377,7 +503,9 @@ def _candidate_after_indices(
     before_count: int,
     after_count: int,
     excluded_after: set[int],
-) -> list[int]:
+    crib_votes: dict[int, int],
+    anchors: list[tuple[int, int]],
+) -> list[tuple[int, int]]:
     candidate_indices: set[int] = set()
 
     # Like Read-Aloud's edited-sentence resolver: use cheap word overlap to
@@ -388,24 +516,28 @@ def _candidate_after_indices(
         if len(postings) <= MAX_TOKEN_POSTINGS:
             candidate_indices.update(postings)
 
+    candidate_indices.update(crib_votes)
     candidate_indices.difference_update(excluded_after)
 
-    # If token lookup finds nothing, fall back to a small relative-position
-    # neighborhood rather than comparing against the whole changed block.
-    if not candidate_indices and after_count:
-        if before_count <= 1:
-            center = 0
-        else:
-            center = round(
-                (before_index / (before_count - 1))
-                * max(0, after_count - 1)
-            )
-        for offset in range(-2, 3):
+    # Anchor-guided sequence corridor: analogous to aligning nearby video
+    # frames after a few known synchronization points. This adds only a small
+    # local band; the token/crib index can still nominate far-away moved text.
+    if after_count:
+        center = _sequence_expected_index(
+            before_index,
+            before_count=before_count,
+            after_count=after_count,
+            anchors=anchors,
+        )
+        for offset in range(
+            -SEQUENCE_CORRIDOR_RADIUS,
+            SEQUENCE_CORRIDOR_RADIUS + 1,
+        ):
             index = center + offset
             if 0 <= index < after_count and index not in excluded_after:
                 candidate_indices.add(index)
 
-    scored: list[tuple[float, int]] = []
+    scored: list[tuple[float, int, int]] = []
     for after_index in candidate_indices:
         overlap = _word_similarity(
             before_tokens,
@@ -417,14 +549,16 @@ def _candidate_after_indices(
             after_index,
             after_count,
         )
-        score = overlap + 0.08 * position
+        crib_count = crib_votes.get(after_index, 0)
+        score = overlap + 0.08 * position + min(crib_count, 3) * 0.10
         if score >= MIN_CHEAP_CANDIDATE_SCORE:
-            scored.append((score, after_index))
+            scored.append((score, crib_count, after_index))
 
-    scored.sort(key=lambda item: (-item[0], item[1]))
+    scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
     return [
-        after_index
-        for _, after_index in scored[:MAX_FUZZY_CANDIDATES]
+        (after_index, crib_count)
+        for _, crib_count, after_index
+        in scored[:MAX_FUZZY_CANDIDATES]
     ]
 
 
@@ -437,6 +571,10 @@ def _pair_replacements(
         after_units,
     )
 
+    crib_candidates, anchors = _rare_crib_candidates(
+        before_units,
+        after_units,
+    )
     after_token_sets = [
         _word_tokens(unit.normalized)
         for unit in after_units
@@ -459,22 +597,35 @@ def _pair_replacements(
             before_count=len(before_units),
             after_count=len(after_units),
             excluded_after=used_after,
+            crib_votes=crib_candidates.get(before_index, {}),
+            anchors=anchors,
         )
 
-        for after_index in shortlist:
+        for after_index, crib_count in shortlist:
             after = after_units[after_index]
             ratio = SequenceMatcher(
                 None,
-                before.normalized,
-                after.normalized,
+                _bounded_fuzzy_text(before.normalized),
+                _bounded_fuzzy_text(after.normalized),
                 autojunk=False,
             ).ratio()
-            if ratio < MIN_SEQUENCE_MATCH_RATIO:
-                continue
             cheap_score = _word_similarity(
                 before_tokens,
                 after_token_sets[after_index],
             )
+
+            # Conservative promotion into "changed": a fuzzy score alone is
+            # not enough. Prefer shared distinctive phrase cribs; otherwise
+            # require substantially stronger lexical overlap.
+            confident = (
+                ratio >= MIN_SEQUENCE_MATCH_RATIO
+                and (
+                    crib_count >= 1
+                    or (ratio >= 0.62 and cheap_score >= 0.40)
+                )
+            )
+            if not confident:
+                continue
             candidates.append(
                 (ratio, cheap_score, before_index, after_index)
             )
