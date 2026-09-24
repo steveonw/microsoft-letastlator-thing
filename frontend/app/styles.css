@@ -377,3 +377,29 @@ button.ghost { background: transparent; }
 .revision-before { color: var(--bad); }
 .revision-after { color: var(--good); }
 .revision-change a { color: var(--accent); }
+
+.revision-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+.revision-toolbar button {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-soft);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.revision-toolbar button.active {
+  background: #eef4ff;
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+#revision-show-more {
+  margin-top: 10px;
+}
