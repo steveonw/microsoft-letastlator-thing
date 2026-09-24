@@ -321,6 +321,49 @@ class SelectiveReanalysisTests(unittest.TestCase):
         self.assertNotIn("[claim-four]", brief.ai_output)
         self.assertEqual(brief.claims, [])
 
+    def test_zero_evidence_ai_claim_is_kept_audit_only(self) -> None:
+        analysis = demo_analysis()
+        claim = analysis.steps[0].claims[0]
+        claim.evidence_ids = []
+        claim.verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
+
+        briefed = build_final_brief(analysis)
+        text = briefed.steps[-1].ai_output
+        normal, audit = text.split("## Unresolved / audit-only findings", 1)
+
+        self.assertNotIn("[claim-one]", normal)
+        self.assertIn("[claim-one]", audit)
+        self.assertIn("Report promotion: BLOCKED", audit)
+        self.assertIn("No cited evidence", audit)
+
+    def test_unresolved_verification_is_not_promoted_even_with_evidence(self) -> None:
+        analysis = demo_analysis()
+        claim = analysis.steps[1].claims[0]
+        claim.verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
+
+        briefed = build_final_brief(analysis)
+        text = briefed.steps[-1].ai_output
+        normal, audit = text.split("## Unresolved / audit-only findings", 1)
+
+        self.assertNotIn("[claim-two]", normal)
+        self.assertIn("[claim-two]", audit)
+        self.assertIn("needs_human_review", audit)
+
+    def test_reviewer_flag_blocks_normal_report_promotion(self) -> None:
+        analysis = demo_analysis()
+        step = analysis.steps[0]
+        step.human_review.flagged_claim_ids.append("claim-one")
+        step.human_review.notes.append("Flagged claim-one: Reviewer disputes this wording.")
+
+        briefed = build_final_brief(analysis)
+        text = briefed.steps[-1].ai_output
+        normal, audit = text.split("## Unresolved / audit-only findings", 1)
+
+        self.assertNotIn("[claim-one]", normal)
+        self.assertIn("[claim-one]", audit)
+        self.assertIn("Reviewer flag remains unresolved", audit)
+        self.assertIn("FLAGGED BY REVIEWER", audit)
+
     def test_final_approval_can_supply_acceptance_for_rush_sections(self) -> None:
         analysis = demo_analysis()
         analysis.mode = AnalysisMode.RUSH
