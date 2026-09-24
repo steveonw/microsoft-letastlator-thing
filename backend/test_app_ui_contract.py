@@ -179,6 +179,45 @@ if __name__ == "__main__":
 
 
 
+class TrustUxCleanupTests(unittest.TestCase):
+    def test_user_facing_verification_notes_do_not_expose_chunk_jargon(self) -> None:
+        policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
+        evidence_path = full_stack.ROOT / "backend" / "evidence.py"
+        combined = (
+            policy_path.read_text(encoding="utf-8")
+            + "\n"
+            + evidence_path.read_text(encoding="utf-8")
+        )
+
+        self.assertNotIn("deferred to Chunk 6", combined)
+        self.assertNotIn("verified until Chunk 6", combined)
+        self.assertIn(
+            "Citation integrity checked. Semantic support still needs verification.",
+            combined,
+        )
+
+    def test_response_ui_language_does_not_claim_minority_prevalence(self) -> None:
+        analyst_path = full_stack.ROOT / "backend" / "response_viewpoint_analyst.py"
+        source = analyst_path.read_text(encoding="utf-8")
+
+        self.assertIn("Distinct / conflicting viewpoints", source)
+        self.assertNotIn("Minority / conflicting viewpoints", source)
+        self.assertIn("Do not label a viewpoint as a minority", source)
+
+    def test_guided_final_state_suppresses_redundant_accept_action(self) -> None:
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn('const reviewed = ["reviewed", "approved"].includes', source)
+        self.assertIn("if (!(reviewed && allContentReviewed()))", source)
+        self.assertIn('add("Build final brief"', source)
+
+    def test_phase_four_build_marker_is_visible(self) -> None:
+        index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
+        html = index_path.read_text(encoding="utf-8")
+        self.assertIn(">build 11<", html)
+
+
 class PolicyFreshnessVisibilityTests(unittest.TestCase):
     def test_product_ui_surfaces_current_policy_status(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
