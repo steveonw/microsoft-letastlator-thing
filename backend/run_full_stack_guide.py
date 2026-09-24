@@ -574,6 +574,27 @@ class GuideState:
                 if status is None or status.latest_completed_action is None
                 else status.latest_completed_action.model_dump(mode="json")
             ),
+            "federal_register_documents": (
+                []
+                if status is None
+                else [
+                    item.model_dump(mode="json")
+                    for item in status.federal_register_documents
+                ]
+            ),
+            "later_federal_register_documents": (
+                []
+                if status is None
+                else [
+                    item.model_dump(mode="json")
+                    for item in status.later_federal_register_documents
+                ]
+            ),
+            "federal_register_check_error": (
+                None
+                if status is None
+                else status.federal_register_check_error
+            ),
             "later_material_action_found": (
                 False
                 if status is None
@@ -606,9 +627,24 @@ class GuideState:
             ),
             f"- RIN: {status['rin'] or 'not available'}",
             f"- Current status check: {status['status_label']}",
+            (
+                "- Federal Register documents for this RIN: "
+                f"{len(status['federal_register_documents'])}"
+            ),
+            (
+                "- Later Federal Register documents after this source: "
+                f"{len(status['later_federal_register_documents'])}"
+            ),
             f"- Checked at: {status['checked_at'] or 'not checked'}",
             f"- Freshness note: {status['freshness_message']}",
         ]
+        for item in status["later_federal_register_documents"][:5]:
+            lines.append(
+                "- Later Federal Register document: "
+                f"{item.get('document_number')} "
+                f"({item.get('publication_date') or 'date unknown'}) — "
+                f"{item.get('title')}"
+            )
         if status["source_url"]:
             lines.append(f"- Status source: {status['source_url']}")
         return "\n".join(lines)
