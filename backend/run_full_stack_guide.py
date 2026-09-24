@@ -557,8 +557,9 @@ class GuideState:
             if source.published_at:
                 parts.append(source.published_at.isoformat())
             line = " — ".join(parts)
-            if source.url:
-                line += f" — {source.url}"
+            # Keep leadership output readable and printable. Full source URLs,
+            # including opaque Google News RSS redirect URLs, remain in the
+            # evidence audit log and interactive UI.
             lines.append(f"- [factual_reporting] {line}")
         return "\n".join(lines)
 
