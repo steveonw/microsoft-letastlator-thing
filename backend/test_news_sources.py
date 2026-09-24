@@ -12,7 +12,6 @@ from news_sources import (
     fetch_gdelt_news,
     historical_publication_window,
     publication_window,
-    wayback_history_url,
 )
 
 
@@ -189,12 +188,15 @@ class NewsSourceTests(unittest.TestCase):
             [attempt.status for attempt in result.provider_attempts],
             ["skipped", "failed", "used"],
         )
-
-    def test_wayback_history_link_keeps_original_url(self) -> None:
-        url = "https://example.com/story?id=42"
+        self.assertIsNone(result.window_start)
+        self.assertIsNone(result.window_end)
         self.assertEqual(
-            wayback_history_url(url),
-            "https://web.archive.org/web/*/https://example.com/story?id=42",
+            result.provider_attempts[0].window_start,
+            date(2023, 9, 23),
+        )
+        self.assertEqual(
+            result.provider_attempts[1].window_end,
+            date.today(),
         )
 
 
