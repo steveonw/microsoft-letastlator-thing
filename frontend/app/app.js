@@ -18,6 +18,7 @@ let flaggingClaimId = null;
 let corpusStatus = null;
 let policyStatus = null;
 let revisionComparison = null;
+let newsStatus = null;
 let revisionFilter = "substantive";
 let revisionVisibleCount = 25;
 let reportView = "leadership";
@@ -222,37 +223,43 @@ function sourceById(id) {
 }
 
 function renderComparisonPreview() {
-  if (!revisionComparison?.available) return;
+  if (!revisionComparison?.available && !newsStatus?.available) return;
 
   byId("workspace").hidden = false;
   byId("review-columns").hidden = true;
   byId("review-actionbar").hidden = true;
 
-  const from = revisionComparison.from_document || {};
-  byId("policy-title").textContent = from.title || "Policy revision comparison";
+  const from = revisionComparison?.from_document || {};
+  byId("policy-title").textContent =
+    from.title || policyStatus?.document_number || "Loaded policy";
   byId("policy-meta").textContent = [
     from.document_number ? `Federal Register ${from.document_number}` : "",
-    revisionComparison.to_document?.document_number
+    revisionComparison?.to_document?.document_number
       ? `compared with ${revisionComparison.to_document.document_number}`
       : "",
   ].filter(Boolean).join(" · ");
 
   renderPolicyStatus();
   renderRevisionComparison();
+  renderNewsStatus();
   renderCorpusStatus();
 }
 
 function render() {
   const started = Boolean(run);
   byId("start-screen").hidden = started;
-  byId("workspace").hidden = !started && !revisionComparison?.available;
+  byId("workspace").hidden =
+    !started && !revisionComparison?.available && !newsStatus?.available;
   byId("review-columns").hidden = !started;
   byId("review-actionbar").hidden = !started;
   if (!started) {
-    byId("mode-pill").textContent = revisionComparison?.available
-      ? "comparison ready"
-      : "not started";
-    if (revisionComparison?.available) renderComparisonPreview();
+    byId("mode-pill").textContent =
+      revisionComparison?.available || newsStatus?.available
+        ? "sources ready"
+        : "not started";
+    if (revisionComparison?.available || newsStatus?.available) {
+      renderComparisonPreview();
+    }
     return;
   }
 
@@ -265,6 +272,7 @@ function render() {
   byId("review-state").textContent = say(run.final_review_status);
   renderPolicyStatus();
   renderRevisionComparison();
+  renderNewsStatus();
   renderCorpusStatus();
 
   renderSections();
@@ -547,6 +555,98 @@ async function compareRevision() {
     renderComparisonPreview();
   }
   banner("Revision comparison ready. Review changed language and refresh flags.", "info");
+}
+
+function renderNewsStatus() {
+  const card = byId("news-card");
+  if (!card) return;
+  if (!newsStatus?.available) {
+    card.hidden = true;
+    return;
+  }
+
+  card.hidden = false;
+  const sources = newsStatus.sources || [];
+  byId("news-health").textContent = sources.length
+    ? "factual-reporting pointers found"
+    : "no recent coverage found";
+  byId("news-health").className =
+    `pill ${sources.length ? "corpus-ok" : "corpus-gap"}`;
+
+  byId("news-metrics").replaceChildren(
+    metric("articles", sources.length),
+    metric("provider", newsStatus.provider || "GDELT"),
+    metric("window start", newsStatus.window_start || "—"),
+    metric("window end", newsStatus.window_end || "—")
+  );
+  byId("news-warning").textContent = newsStatus.limitation || "";
+  byId("news-detail").textContent =
+    `Query: ${newsStatus.query || "—"}` +
+    (newsStatus.checked_at ? ` · Checked: ${newsStatus.checked_at}` : "");
+
+  const list = byId("news-list");
+  list.replaceChildren();
+  for (const source of sources) {
+    const item = document.createElement("article");
+    item.className = "news-item";
+
+    const tag = document.createElement("span");
+    tag.className = "tag type-factual_reporting";
+    tag.textContent = "factual reporting";
+
+    const title = document.createElement("strong");
+    title.textContent = source.title || "Untitled article";
+
+    const meta = document.createElement("p");
+    meta.className = "muted small";
+    meta.textContent = [
+      source.agency || "",
+      source.published_at || "",
+    ].filter(Boolean).join(" · ");
+
+    item.append(tag, title, meta);
+    if (source.url) {
+      const link = document.createElement("a");
+      link.href = source.url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "Open original article";
+      item.append(link);
+    }
+    list.append(item);
+  }
+}
+
+async function refreshNewsStatus() {
+  const data = await api("/api/news/status");
+  if (!data) return null;
+  newsStatus = data;
+  if (run) renderNewsStatus();
+  return data;
+}
+
+async function discoverNews() {
+  const query = byId("news-query").value.trim();
+  const maxArticles = Number(byId("max-news").value || 8);
+  banner("Finding recent related factual reporting.");
+  const data = await api("/api/news", {
+    query,
+    max_articles: maxArticles,
+  });
+  if (!data) return;
+  newsStatus = data;
+  if (run) {
+    renderNewsStatus();
+  } else {
+    renderComparisonPreview();
+  }
+  const count = (data.sources || []).length;
+  banner(
+    count
+      ? `Found ${count} recent factual-reporting source pointer${count === 1 ? "" : "s"}.`
+      : "No recent related reporting was returned by the discovery source.",
+    "info"
+  );
 }
 
 function metric(label, value) {
@@ -1229,6 +1329,7 @@ async function loadPolicy() {
     flaggingClaimId = null;
     corpusStatus = null;
     revisionComparison = null;
+    newsStatus = null;
     policyStatus = await refreshPolicyStatus();
     const title = updated.policy?.title || documentNumber;
     byId("source-state").textContent =
@@ -1330,6 +1431,7 @@ async function start(mode) {
     selectedClaimId = null;
     if (!policyStatus) await refreshPolicyStatus();
     if (!revisionComparison) await refreshRevisionComparison();
+    if (!newsStatus) await refreshNewsStatus();
     if (!corpusStatus) await refreshCorpusStatus();
     render();
   }
@@ -1344,6 +1446,7 @@ function boot() {
   syncProviderFields();
   byId("load-policy").addEventListener("click", loadPolicy);
   byId("compare-revision").addEventListener("click", compareRevision);
+  byId("discover-news").addEventListener("click", discoverNews);
   for (const button of document.querySelectorAll("[data-revision-filter]")) {
     button.addEventListener("click", () => {
       revisionFilter = button.dataset.revisionFilter || "substantive";
@@ -1370,6 +1473,7 @@ function boot() {
     corpusStatus = null;
     policyStatus = null;
     revisionComparison = null;
+    newsStatus = null;
     revisionFilter = "substantive";
     revisionVisibleCount = 25;
     reportView = "leadership";
