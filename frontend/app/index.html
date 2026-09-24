@@ -11,7 +11,7 @@
     <div class="brand">
       <span class="mark">PolicyTrace</span>
       <span class="tagline">Every finding traced to the source text</span>
-      <span id="build-marker" class="build-marker">build 14</span>
+      <span id="build-marker" class="build-marker">build 15</span>
     </div>
     <div class="topbar-right">
       <span id="mode-pill" class="pill">not started</span>
@@ -173,7 +173,19 @@
         <div id="revision-metrics" class="revision-metrics"></div>
         <p id="revision-warning" class="status-warning"></p>
         <p id="revision-detail" class="muted small"></p>
+        <div class="revision-toolbar" aria-label="Revision filters">
+          <button type="button" data-revision-filter="substantive" class="active">Substantive</button>
+          <button type="button" data-revision-filter="threshold">Thresholds</button>
+          <button type="button" data-revision-filter="date">Dates</button>
+          <button type="button" data-revision-filter="stakeholder">Stakeholders</button>
+          <button type="button" data-revision-filter="text">Text</button>
+          <button type="button" data-revision-filter="all">All</button>
+        </div>
+        <p id="revision-shown" class="muted small"></p>
         <div id="revision-changes" class="revision-changes"></div>
+        <button id="revision-show-more" type="button" class="secondary-button" hidden>
+          Show more
+        </button>
       </section>
 
       <section id="corpus-card" class="corpus-card" hidden>
