@@ -70,7 +70,7 @@ Rules:
 - Do not decide what the policy itself says; that belongs to the Policy Interpreter.
 - Do not endorse, oppose, rank, score, or recommend a political or policy position.
 - Do not reduce the material to a single sentiment score.
-- Preserve meaningful disagreement, mixed reactions, and minority viewpoints.
+- Preserve meaningful disagreement, mixed reactions, and distinct/conflicting viewpoints. Do not label a viewpoint as a minority unless the supplied material actually establishes prevalence.
 - Do not infer motives that are not stated or directly supported.
 - Every finding must cite 1 to 5 exact verbatim quotes.
 - Every evidence reference must identify the exact source_id containing that quote.
@@ -373,7 +373,7 @@ def build_response_analysis(
         ],
         ai_output=_findings_text(
             [
-                ("Minority / conflicting viewpoints", output.minority_conflicting),
+                ("Distinct / conflicting viewpoints", output.minority_conflicting),
                 ("Emerging issues", output.emerging_issues),
             ],
             note,
