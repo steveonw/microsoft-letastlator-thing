@@ -275,10 +275,14 @@ function renderPolicyStatus() {
     warning.textContent = policyStatus.freshness_message || "";
   }
 
+  const laterFr = policyStatus.later_federal_register_documents || [];
+  const allFr = policyStatus.federal_register_documents || [];
   const detail = [
     policyStatus.status_label ? `Status: ${policyStatus.status_label}` : "",
     policyStatus.agenda_stage ? `Agenda stage: ${policyStatus.agenda_stage}` : "",
     policyStatus.rin_status ? `RIN status: ${policyStatus.rin_status}` : "",
+    `Federal Register matches for RIN: ${allFr.length}`,
+    `Later Federal Register documents: ${laterFr.length}`,
     policyStatus.checked_at ? `Checked: ${policyStatus.checked_at}` : "",
   ].filter(Boolean);
   byId("policy-status-detail").textContent = detail.join(" · ");
