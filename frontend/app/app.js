@@ -17,6 +17,8 @@ let editingClaimId = null;
 let flaggingClaimId = null;
 let corpusStatus = null;
 let policyStatus = null;
+let reportView = "leadership";
+let auditLogText = null;
 let apiRequestInFlight = false;
 
 const byId = (id) => document.getElementById(id);
@@ -737,6 +739,8 @@ function renderActions() {
         run = updated;
         selectedStepId = null;
         selectedClaimId = null;
+        reportView = "leadership";
+        auditLogText = null;
         showBrief();
       }
     }, "primary");
@@ -831,10 +835,37 @@ async function saveEdit(claimId, text) {
   });
 }
 
-function showBrief() {
+function leadershipReportText() {
   const brief = steps().find((s) => s.kind === "draft_brief");
-  byId("brief-text").textContent = brief?.ai_output ?? "(the brief is empty)";
+  return brief?.ai_output ?? "(the leadership report is empty)";
+}
 
+function renderFinalOutput() {
+  const audit = reportView === "audit";
+  byId("report-title").textContent =
+    audit ? "Evidence Audit Log" : "Leadership Report";
+  byId("report-description").textContent = audit
+    ? "The receipt layer: every reviewed claim, verification state, reviewer action, and exact stored evidence passage."
+    : "A concise leadership-facing report assembled only from reviewed, evidence-backed findings. Claim IDs link every line to the audit log.";
+  byId("brief-text").textContent = audit
+    ? (auditLogText ?? "Loading the evidence audit log…")
+    : leadershipReportText();
+
+  byId("show-leadership").classList.toggle("active", !audit);
+  byId("show-audit").classList.toggle("active", audit);
+  byId("copy-brief").textContent = audit ? "Copy audit log" : "Copy report";
+  byId("approve-brief").hidden = audit;
+}
+
+async function showAuditLog() {
+  const data = await api("/api/audit-log");
+  if (!data?.text) return;
+  auditLogText = data.text;
+  reportView = "audit";
+  renderFinalOutput();
+}
+
+function showBrief() {
   const content = contentSteps();
   const reviewed = content.filter((s) =>
     ["reviewed", "approved"].includes(s.human_review?.status)
@@ -847,24 +878,26 @@ function showBrief() {
 
   if (run.final_review_status === "approved") {
     notice.textContent =
-      "Analysis complete. You approved the final brief. You can copy the brief, go back to inspect the review, or choose Start over for another policy.";
+      "Analysis complete. You approved the leadership report. The Evidence Audit Log remains available as the traceable receipt layer.";
     notice.hidden = false;
     approve.disabled = true;
     approve.textContent = "Approved";
   } else {
     approve.disabled = false;
     approve.textContent =
-      flagged > 0 ? "Approve with unresolved flags…" : "Approve final brief";
+      flagged > 0
+        ? "Approve report with unresolved flags…"
+        : "Approve leadership report";
     if (skipped > 0) {
       notice.textContent =
-        `This brief covers ${reviewed.length} of ${content.length} sections. ` +
+        `This report covers ${reviewed.length} of ${content.length} sections. ` +
         `${skipped} section${skipped === 1 ? " is" : "s are"} missing because ` +
         `you have not reviewed ${skipped === 1 ? "it" : "them"} yet.`;
       notice.hidden = false;
     } else if (flagged > 0) {
       notice.textContent =
-        `This brief contains ${flagged} unresolved reviewer flag` +
-        `${flagged === 1 ? "" : "s"}. The flag text is included in the brief. ` +
+        `There ${flagged === 1 ? "is" : "are"} ${flagged} unresolved reviewer flag` +
+        `${flagged === 1 ? "" : "s"}. Flagged findings are withheld from the leadership report and preserved in the Evidence Audit Log. ` +
         "Final approval requires an explicit acknowledgement.";
       notice.hidden = false;
     } else {
@@ -872,6 +905,7 @@ function showBrief() {
     }
   }
 
+  renderFinalOutput();
   byId("workspace").hidden = true;
   byId("brief-screen").hidden = false;
 }
@@ -1078,6 +1112,8 @@ function boot() {
     flaggingClaimId = null;
     corpusStatus = null;
     policyStatus = null;
+    reportView = "leadership";
+    auditLogText = null;
     byId("brief-screen").hidden = true;
     banner("");
     render();
@@ -1089,6 +1125,13 @@ function boot() {
     selectedStepId = null;
     render();
   });
+
+  byId("show-leadership").addEventListener("click", () => {
+    reportView = "leadership";
+    renderFinalOutput();
+  });
+
+  byId("show-audit").addEventListener("click", showAuditLog);
 
   byId("approve-brief").addEventListener("click", async () => {
     const flagged = unresolvedFlagCount();
@@ -1106,6 +1149,8 @@ function boot() {
     });
     if (updated) {
       run = updated;
+      auditLogText = null;
+      reportView = "leadership";
       showBrief();
     }
   });
@@ -1114,9 +1159,13 @@ function boot() {
     const text = byId("brief-text").textContent ?? "";
     try {
       await navigator.clipboard.writeText(text);
-      banner("Final brief copied to the clipboard.");
+      banner(
+        reportView === "audit"
+          ? "Evidence Audit Log copied to the clipboard."
+          : "Leadership Report copied to the clipboard."
+      );
     } catch (error) {
-      banner("Could not copy the brief automatically. Select the text and copy it manually.", "refused");
+      banner("Could not copy this output automatically. Select the text and copy it manually.", "refused");
     }
   });
 
