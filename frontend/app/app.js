@@ -17,6 +17,7 @@ let editingClaimId = null;
 let flaggingClaimId = null;
 let corpusStatus = null;
 let policyStatus = null;
+let revisionComparison = null;
 let reportView = "leadership";
 let auditLogText = null;
 let apiRequestInFlight = false;
@@ -235,6 +236,7 @@ function render() {
   byId("policy-meta").textContent = bits.join(" · ");
   byId("review-state").textContent = say(run.final_review_status);
   renderPolicyStatus();
+  renderRevisionComparison();
   renderCorpusStatus();
 
   renderSections();
@@ -304,6 +306,126 @@ async function refreshPolicyStatus() {
   policyStatus = status;
   if (run) renderPolicyStatus();
   return status;
+}
+
+function shortText(value, max = 240) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function renderRevisionComparison() {
+  const card = byId("revision-card");
+  if (!card) return;
+  if (!revisionComparison?.available) {
+    card.hidden = true;
+    return;
+  }
+
+  card.hidden = false;
+  const from = revisionComparison.from_document || {};
+  const to = revisionComparison.to_document || {};
+  byId("revision-metrics").replaceChildren(
+    metric("changed", revisionComparison.changed_count || 0),
+    metric("added", revisionComparison.added_count || 0),
+    metric("removed", revisionComparison.removed_count || 0),
+    metric(
+      "claims may need refresh",
+      (revisionComparison.potentially_affected_claim_ids || []).length
+    )
+  );
+
+  const health = byId("revision-health");
+  const affected = revisionComparison.potentially_affected_claim_ids || [];
+  health.textContent = affected.length
+    ? "review existing findings"
+    : "comparison ready";
+  health.className = `pill ${affected.length ? "corpus-gap" : "corpus-ok"}`;
+
+  byId("revision-warning").textContent = revisionComparison.warning || "";
+  const shared = revisionComparison.shared_rins || [];
+  const tags = Object.entries(revisionComparison.tag_counts || {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(" · ");
+  byId("revision-detail").textContent = [
+    `${from.document_number || "?"} → ${to.document_number || "?"}`,
+    shared.length ? `Shared RIN: ${shared.join(", ")}` : "Shared RIN not confirmed",
+    tags ? `Change flags: ${tags}` : "",
+    affected.length ? `May need refresh: ${affected.join(", ")}` : "",
+  ].filter(Boolean).join(" · ");
+
+  const list = byId("revision-changes");
+  list.replaceChildren();
+  for (const change of (revisionComparison.changes || []).slice(0, 8)) {
+    const item = document.createElement("details");
+    item.className = "revision-change";
+    const summary = document.createElement("summary");
+    summary.textContent =
+      `${say(change.kind)} · ${(change.tags || []).join(", ")}` +
+      `${change.potentially_affected_claim_ids?.length
+        ? ` · refresh: ${change.potentially_affected_claim_ids.join(", ")}`
+        : ""}`;
+    item.append(summary);
+
+    if (change.before_text) {
+      const before = document.createElement("p");
+      before.className = "revision-before";
+      before.textContent = `Before: ${shortText(change.before_text)}`;
+      item.append(before);
+    }
+    if (change.after_text) {
+      const after = document.createElement("p");
+      after.className = "revision-after";
+      after.textContent = `After: ${shortText(change.after_text)}`;
+      item.append(after);
+    }
+
+    const links = document.createElement("p");
+    links.className = "muted small";
+    if (change.before_url) {
+      const link = document.createElement("a");
+      link.href = change.before_url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "Older source";
+      links.append(link);
+    }
+    if (change.after_url) {
+      if (links.childNodes.length) links.append(" · ");
+      const link = document.createElement("a");
+      link.href = change.after_url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "Newer source";
+      links.append(link);
+    }
+    item.append(links);
+    list.append(item);
+  }
+}
+
+async function refreshRevisionComparison() {
+  const data = await api("/api/revision-comparison");
+  if (!data) return null;
+  revisionComparison = data;
+  if (run) renderRevisionComparison();
+  return data;
+}
+
+async function compareRevision() {
+  const documentNumber = byId("revision-doc-number").value.trim();
+  if (!documentNumber) {
+    banner("Enter a second Federal Register document number.", "refused");
+    return;
+  }
+  banner(`Comparing the loaded policy with ${documentNumber}.`);
+  const data = await api("/api/revision-compare", {
+    document_number: documentNumber,
+  });
+  if (!data) return;
+  revisionComparison = data;
+  renderRevisionComparison();
+  banner("Revision comparison ready. Review changed language and refresh flags.", "info");
 }
 
 function metric(label, value) {
@@ -985,6 +1107,7 @@ async function loadPolicy() {
     editingClaimId = null;
     flaggingClaimId = null;
     corpusStatus = null;
+    revisionComparison = null;
     policyStatus = await refreshPolicyStatus();
     const title = updated.policy?.title || documentNumber;
     byId("source-state").textContent =
@@ -1085,6 +1208,7 @@ async function start(mode) {
     selectedStepId = started.current_step_id ?? null;
     selectedClaimId = null;
     if (!policyStatus) await refreshPolicyStatus();
+    if (!revisionComparison) await refreshRevisionComparison();
     if (!corpusStatus) await refreshCorpusStatus();
     render();
   }
@@ -1098,6 +1222,7 @@ function boot() {
   byId("provider-kind").addEventListener("change", syncProviderFields);
   syncProviderFields();
   byId("load-policy").addEventListener("click", loadPolicy);
+  byId("compare-revision").addEventListener("click", compareRevision);
   byId("load-comments").addEventListener("click", loadComments);
   byId("recent-errors").addEventListener("click", showRecentErrors);
   byId("close-errors").addEventListener("click", () => {
@@ -1112,6 +1237,7 @@ function boot() {
     flaggingClaimId = null;
     corpusStatus = null;
     policyStatus = null;
+    revisionComparison = null;
     reportView = "leadership";
     auditLogText = null;
     byId("brief-screen").hidden = true;
