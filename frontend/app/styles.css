@@ -229,6 +229,23 @@ button.ghost { background: transparent; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .brief { max-width: 860px; margin: 24px auto; padding: 0 20px; }
+.report-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+.report-tab {
+  background: #f3f5f7;
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+}
+.report-tab.active {
+  background: #e8f0fb;
+  border-color: #9dbbe5;
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .brief pre {
   white-space: pre-wrap; background: var(--panel); padding: 20px;
   border: 1px solid var(--line); border-radius: var(--radius);
