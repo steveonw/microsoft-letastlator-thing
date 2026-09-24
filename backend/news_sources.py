@@ -40,9 +40,10 @@ class NewsDiscovery(StrictModel):
     window_end: date | None = None
     sources: list[Source] = Field(default_factory=list)
     limitation: str = (
-        "GDELT is used here for news discovery. Article titles/headlines and "
-        "metadata are factual-reporting source pointers, not verified factual "
-        "claims. Open the original article before relying on its factual content."
+        "GDELT is used here for recent news discovery. Article titles/headlines "
+        "and metadata are factual-reporting source pointers, not verified factual "
+        "claims. Historical coverage may fall outside the provider's rolling "
+        "search window. Open the original article before relying on its factual content."
     )
 
 
@@ -78,17 +79,20 @@ def default_news_query(title: str) -> str:
         escaped = token.replace('"', "")
         return f'"{escaped}"' if "-" in escaped or " " in escaped else escaped
 
-    return " AND ".join(quote(token) for token in selected[:3])
+    return " ".join(quote(token) for token in selected[:3])
 
 
-def publication_window(publication_date: date | None) -> tuple[date | None, date | None]:
-    if publication_date is None:
-        return None, None
-    start = publication_date - timedelta(days=30)
-    end = min(date.today(), publication_date + timedelta(days=540))
-    if end < start:
-        end = date.today()
-    return start, end
+def publication_window(publication_date: date | None) -> tuple[date, date]:
+    today = date.today()
+    rolling_start = today - timedelta(days=89)
+
+    # GDELT DOC 2.0 is a rolling recent-news index. If the policy itself was
+    # published inside that window, include a little context before it;
+    # otherwise search the currently available recent-news window rather than
+    # asking the provider for dates it no longer indexes.
+    if publication_date is not None and publication_date >= rolling_start:
+        return max(rolling_start, publication_date - timedelta(days=14)), today
+    return rolling_start, today
 
 
 def _gdelt_datetime(value: date) -> str:
@@ -163,10 +167,8 @@ def fetch_gdelt_news(
         # page and slice locally to the user's requested count.
         "maxrecords": max(25, max_articles),
     }
-    if start is not None:
-        params["startdatetime"] = _gdelt_datetime(start)
-    if end is not None:
-        params["enddatetime"] = _gdelt_datetime(end)
+    params["startdatetime"] = _gdelt_datetime(start)
+    params["enddatetime"] = _gdelt_datetime(end)
 
     request = Request(
         f"{GDELT_DOC_API}?{urlencode(params)}",
