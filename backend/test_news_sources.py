@@ -8,8 +8,11 @@ from unittest.mock import patch
 from models import InformationType, PiiRedactionStatus
 from news_sources import (
     default_news_query,
+    discover_news,
     fetch_gdelt_news,
+    historical_publication_window,
     publication_window,
+    wayback_history_url,
 )
 
 
@@ -135,6 +138,63 @@ class NewsSourceTests(unittest.TestCase):
         self.assertEqual(
             str(discovery.sources[0].url),
             "https://valid.example/story",
+        )
+
+    def test_historical_window_surrounds_old_policy(self) -> None:
+        start, end = historical_publication_window(date(2023, 10, 23))
+
+        self.assertEqual(start, date(2023, 9, 23))
+        self.assertEqual(end, date(2025, 4, 15))
+
+    def test_provider_chain_survives_gdelt_failure_and_uses_rss(self) -> None:
+        rss = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <rss><channel>
+          <item>
+            <title>Archived coverage of H-1B modernization</title>
+            <link>https://news.example/story</link>
+            <pubDate>Mon, 18 Dec 2023 12:00:00 GMT</pubDate>
+            <source>Example News</source>
+          </item>
+        </channel></rss>"""
+
+        class _BytesResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self) -> bytes:
+                return rss
+
+        def fake_urlopen(request, timeout=30):
+            del timeout
+            url = request.full_url
+            if "api.gdeltproject.org" in url:
+                raise RuntimeError("rate limited")
+            if "news.google.com" in url:
+                return _BytesResponse()
+            raise AssertionError(url)
+
+        with patch("news_sources.urlopen", side_effect=fake_urlopen):
+            result = discover_news(
+                policy_title="H-1B Modernization Rule",
+                publication_date=date(2023, 10, 23),
+                max_articles=8,
+            )
+
+        self.assertEqual(len(result.sources), 1)
+        self.assertEqual(result.sources[0].title, "Archived coverage of H-1B modernization")
+        self.assertEqual(
+            [attempt.status for attempt in result.provider_attempts],
+            ["skipped", "failed", "used"],
+        )
+
+    def test_wayback_history_link_keeps_original_url(self) -> None:
+        url = "https://example.com/story?id=42"
+        self.assertEqual(
+            wayback_history_url(url),
+            "https://web.archive.org/web/*/https://example.com/story?id=42",
         )
 
 
