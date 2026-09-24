@@ -534,9 +534,15 @@ class GuideState:
             f"- Limitation: {discovery.limitation}",
         ]
         for attempt in discovery.provider_attempts:
+            window = ""
+            if attempt.window_start or attempt.window_end:
+                window = (
+                    f" | window: {attempt.window_start or 'open'} to "
+                    f"{attempt.window_end or 'open'}"
+                )
             lines.append(
                 f"- Provider attempt: {attempt.provider} [{attempt.status}] "
-                f"{attempt.detail}"
+                f"{attempt.detail}{window}"
             )
         if discovery.window_start or discovery.window_end:
             lines.append(
@@ -569,9 +575,15 @@ class GuideState:
             f"- Limitation: {discovery.limitation}",
         ]
         for attempt in discovery.provider_attempts:
+            window = ""
+            if attempt.window_start or attempt.window_end:
+                window = (
+                    f" | window: {attempt.window_start or 'open'} to "
+                    f"{attempt.window_end or 'open'}"
+                )
             lines.append(
                 f"- Provider attempt: {attempt.provider} [{attempt.status}] "
-                f"{attempt.detail}"
+                f"{attempt.detail}{window}"
             )
         for source in discovery.sources:
             lines.extend(
@@ -1121,8 +1133,8 @@ class GuideState:
             for value in (
                 self._policy_status_brief_text(),
                 self._revision_brief_text(),
-                self._news_brief_text(),
                 self._corpus_brief_text(),
+                self._news_brief_text(),
             )
             if value
         ]
@@ -1144,8 +1156,8 @@ class GuideState:
             for value in (
                 self._policy_status_brief_text(),
                 self._revision_audit_text(),
-                self._news_audit_text(),
                 self._corpus_brief_text(),
+                self._news_audit_text(),
             )
             if value
         ]
