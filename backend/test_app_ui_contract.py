@@ -215,7 +215,7 @@ class TrustUxCleanupTests(unittest.TestCase):
     def test_phase_seven_build_marker_is_visible(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         html = index_path.read_text(encoding="utf-8")
-        self.assertIn(">build 16<", html)
+        self.assertIn(">build 17<", html)
 
     def test_analysis_prompts_request_atomic_findings(self) -> None:
         policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
@@ -317,6 +317,22 @@ class RevisionPreviewVisibilityTests(unittest.TestCase):
         self.assertIn('byId("review-columns").hidden = !started;', source)
         self.assertIn('byId("review-actionbar").hidden = !started;', source)
         self.assertIn("renderComparisonPreview();", source)
+
+
+class FactualReportingVisibilityTests(unittest.TestCase):
+    def test_phase_eight_news_discovery_is_visibly_separate(self) -> None:
+        index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        html = index_path.read_text(encoding="utf-8")
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn('id="discover-news"', html)
+        self.assertIn('id="news-card"', html)
+        self.assertIn("Headlines and metadata are pointers, not verified factual claims", html)
+        self.assertIn("/api/news", source)
+        self.assertIn("/api/news/status", source)
+        self.assertIn("type-factual_reporting", source)
+        self.assertIn("Open original article", source)
 
 
 class PolicyFreshnessVisibilityTests(unittest.TestCase):
