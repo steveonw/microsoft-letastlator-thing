@@ -215,7 +215,7 @@ class TrustUxCleanupTests(unittest.TestCase):
     def test_phase_seven_build_marker_is_visible(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         html = index_path.read_text(encoding="utf-8")
-        self.assertIn(">build 15<", html)
+        self.assertIn(">build 16<", html)
 
     def test_analysis_prompts_request_atomic_findings(self) -> None:
         policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
@@ -298,6 +298,25 @@ class RevisionReviewabilityTests(unittest.TestCase):
         self.assertIn("from_unit_count", source)
         self.assertIn("revisionLooksLikeHeaderNoise", source)
         self.assertNotIn(".slice(0, 8)", source)
+
+
+class RevisionPreviewVisibilityTests(unittest.TestCase):
+    def test_comparison_is_visible_before_review_mode_starts(self) -> None:
+        index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        html = index_path.read_text(encoding="utf-8")
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn('id="review-columns"', html)
+        self.assertIn('id="review-actionbar"', html)
+        self.assertIn("function renderComparisonPreview()", source)
+        self.assertIn(
+            'byId("workspace").hidden = !started && !revisionComparison?.available;',
+            source,
+        )
+        self.assertIn('byId("review-columns").hidden = !started;', source)
+        self.assertIn('byId("review-actionbar").hidden = !started;', source)
+        self.assertIn("renderComparisonPreview();", source)
 
 
 class PolicyFreshnessVisibilityTests(unittest.TestCase):
