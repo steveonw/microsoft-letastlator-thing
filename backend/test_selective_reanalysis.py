@@ -326,6 +326,7 @@ class SelectiveReanalysisTests(unittest.TestCase):
         claim = analysis.steps[0].claims[0]
         claim.evidence_ids = []
         claim.verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
+        claim.verification_note = "No cited evidence is available."
 
         briefed = build_final_brief(analysis)
         text = briefed.steps[-1].ai_output
@@ -340,6 +341,7 @@ class SelectiveReanalysisTests(unittest.TestCase):
         analysis = demo_analysis()
         claim = analysis.steps[1].claims[0]
         claim.verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
+        claim.verification_note = "Semantic support requires human review."
 
         briefed = build_final_brief(analysis)
         text = briefed.steps[-1].ai_output
