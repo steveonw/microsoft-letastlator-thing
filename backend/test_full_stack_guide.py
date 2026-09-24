@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from models import HumanReviewStatus, InformationType, StepStatus
 from response_sources import CommentFetchReport, CommentFetchResult, ResponseRecord
+from policy_status import unavailable_policy_status
 from run_full_stack_guide import GuideState, make_rush_inputs
 
 
@@ -41,6 +42,10 @@ class FullStackGuideTests(unittest.TestCase):
         state.provider.model = "openrouter/free"
         policy_run, _ = make_rush_inputs()
         fake_document = object()
+        fake_status = unavailable_policy_status(
+            "test status unavailable",
+            rin="0694-AJ55",
+        )
 
         with (
             patch(
@@ -51,15 +56,54 @@ class FullStackGuideTests(unittest.TestCase):
                 "run_full_stack_guide.run_policy_interpreter",
                 return_value=policy_run,
             ) as interpret,
+            patch(
+                "run_full_stack_guide.fetch_policy_status",
+                return_value=fake_status,
+            ) as fetch_status,
         ):
             loaded = state.load_policy("2024-20529")
 
         fetch.assert_called_once_with("2024-20529")
         interpret.assert_called_once()
+        fetch_status.assert_called_once_with(fake_document)
         self.assertIs(state.document, fake_document)
         self.assertEqual(state.policy_analysis.policy.id, policy_run.policy.id)
         self.assertEqual(loaded.policy.id, policy_run.policy.id)
         self.assertIsNone(loaded.current_step_id)
+
+    def test_policy_status_unavailable_does_not_block_policy_load(self) -> None:
+        state = GuideState()
+        state.provider.kind = "openrouter"
+        state.provider.api_key = "fake-model-key"
+        state.provider.model = "openrouter/free"
+        policy_run, _ = make_rush_inputs()
+        fake_document = object()
+        fake_status = unavailable_policy_status(
+            "network unavailable",
+            rin="0694-AJ55",
+        )
+
+        with (
+            patch(
+                "run_full_stack_guide.fetch_and_normalize",
+                return_value=fake_document,
+            ),
+            patch(
+                "run_full_stack_guide.run_policy_interpreter",
+                return_value=policy_run,
+            ),
+            patch(
+                "run_full_stack_guide.fetch_policy_status",
+                return_value=fake_status,
+            ),
+        ):
+            loaded = state.load_policy("2024-20529")
+
+        self.assertEqual(loaded.policy.id, policy_run.policy.id)
+        status = state.policy_status_payload()
+        self.assertFalse(status["available"])
+        self.assertEqual(status["status_label"], "Status check unavailable")
+        self.assertIn("checked manually", status["freshness_message"])
 
     def test_live_comment_load_uses_memory_only_regulations_key(self) -> None:
         state = GuideState()
