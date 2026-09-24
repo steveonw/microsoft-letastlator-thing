@@ -1,5 +1,6 @@
 import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from models import HumanReviewStatus, InformationType, StepStatus
@@ -41,7 +42,11 @@ class FullStackGuideTests(unittest.TestCase):
         state.provider.api_key = "fake-model-key"
         state.provider.model = "openrouter/free"
         policy_run, _ = make_rush_inputs()
-        fake_document = object()
+        fake_document = SimpleNamespace(
+            document_number="2024-20529",
+            document_type="Proposed Rule",
+            publication_date=None,
+        )
         fake_status = unavailable_policy_status(
             "test status unavailable",
             rin="0694-AJ55",
