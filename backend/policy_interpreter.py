@@ -65,6 +65,7 @@ Rules:
 - Do not recommend, endorse, oppose, rank, or score the policy.
 - Do not infer motives or intent beyond what the official source explicitly supports.
 - Every finding in every section must include all three fields: text, evidence_quotes, and confidence.
+- Keep each finding atomic: one main factual proposition per finding. Split independent requirements, deadlines, actors, thresholds, exceptions, or effects into separate findings instead of joining them with "and".
 - confidence must be exactly one of: low, medium, high. If uncertain, use low; never omit confidence.
 - Every finding must include 1 to 3 short, exact, verbatim evidence quotes copied from the source.
 - If the source does not support a finding, omit it.
