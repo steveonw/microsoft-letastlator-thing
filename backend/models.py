@@ -62,6 +62,7 @@ class StepKind(str, Enum):
     AFFECTED_PROGRAMS = "affected_programs"
     PUBLIC_RESPONSE = "public_response"
     THEMES_VIEWPOINTS = "themes_viewpoints"
+    FACTUAL_REPORTING = "factual_reporting"
     VERIFICATION = "verification"
     DRAFT_BRIEF = "draft_brief"
 
