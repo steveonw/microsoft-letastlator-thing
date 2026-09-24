@@ -420,6 +420,66 @@ class RuntimeProvider:
         return client.complete_json
 
 
+NEWS_REVIEW_STEP_ID = "step-related-media"
+
+
+def _news_review_materials(
+    discovery: NewsDiscovery,
+) -> tuple[list[Source], list[Evidence], AnalysisStep]:
+    sources = [source.model_copy(deep=True) for source in discovery.sources]
+    evidence: list[Evidence] = []
+    claims: list[Claim] = []
+
+    for source in sources:
+        title = (source.title or "").strip()
+        if not title:
+            continue
+        suffix = source.id.removeprefix("source-")
+        evidence_id = f"evidence-news-{suffix}"
+        claim_id = f"claim-news-{suffix}"
+        evidence.append(
+            Evidence(
+                id=evidence_id,
+                source_id=source.id,
+                snippet=title,
+                locator="News discovery headline/title only",
+                start_offset=0,
+                end_offset=len(title),
+                retrieved_at=discovery.checked_at,
+            )
+        )
+        claims.append(
+            Claim(
+                id=claim_id,
+                text=title,
+                information_type=InformationType.FACTUAL_REPORTING,
+                evidence_ids=[evidence_id],
+                verification_status=VerificationStatus.SUPPORTED,
+                verification_note=(
+                    "Discovery-only source pointer. The cited evidence is the "
+                    "provider-supplied headline/title; article-body factual content "
+                    "was not ingested or verified."
+                ),
+                confidence="medium",
+            )
+        )
+
+    step = AnalysisStep(
+        id=NEWS_REVIEW_STEP_ID,
+        kind=StepKind.FACTUAL_REPORTING,
+        title="Related media / factual reporting",
+        status=StepStatus.DRAFT,
+        claims=claims,
+        ai_output=(
+            "Review the discovered media/source pointers. Headlines and metadata "
+            "are discovery evidence only, not verified article-body facts."
+        ),
+        human_review=HumanReview(status=HumanReviewStatus.NOT_REVIEWED),
+        version=1,
+    )
+    return sources, evidence, step
+
+
 class GuideState:
     def __init__(self) -> None:
         self.analysis = make_guided_demo()
@@ -432,6 +492,91 @@ class GuideState:
         self.revision_comparison: RevisionComparison | None = None
         self.news_discovery: NewsDiscovery | None = None
 
+    def _sync_news_review_step(self, analysis: AnalysisRun) -> AnalysisRun:
+        updated = AnalysisRun.model_validate(analysis.model_dump(mode="python"))
+        existing = next(
+            (step for step in updated.steps if step.id == NEWS_REVIEW_STEP_ID),
+            None,
+        )
+
+        old_evidence_ids = {
+            evidence_id
+            for claim in (existing.claims if existing else [])
+            for evidence_id in claim.evidence_ids
+        }
+        old_source_ids = {
+            evidence.source_id
+            for evidence in updated.evidence
+            if evidence.id in old_evidence_ids
+        }
+
+        updated.steps = [
+            step
+            for step in updated.steps
+            if step.id != NEWS_REVIEW_STEP_ID
+            and step.kind != StepKind.DRAFT_BRIEF
+        ]
+        updated.evidence = [
+            evidence
+            for evidence in updated.evidence
+            if evidence.id not in old_evidence_ids
+        ]
+        referenced_source_ids = {evidence.source_id for evidence in updated.evidence}
+        updated.sources = [
+            source
+            for source in updated.sources
+            if source.id not in old_source_ids or source.id in referenced_source_ids
+        ]
+
+        discovery = self.news_discovery
+        if discovery is None or not discovery.sources:
+            return AnalysisRun.model_validate(updated.model_dump(mode="python"))
+
+        news_sources, news_evidence, news_step = _news_review_materials(discovery)
+        existing_claim_ids = (
+            {claim.id for claim in existing.claims}
+            if existing is not None
+            else set()
+        )
+        new_claim_ids = {claim.id for claim in news_step.claims}
+        if existing is not None and existing_claim_ids == new_claim_ids:
+            news_step.human_review = existing.human_review.model_copy(deep=True)
+            news_step.status = existing.status
+            news_step.version = existing.version
+        elif existing is not None:
+            news_step.version = existing.version + 1
+
+        content_steps = [
+            step
+            for step in updated.steps
+            if step.kind not in {StepKind.VERIFICATION, StepKind.DRAFT_BRIEF}
+        ]
+        if content_steps:
+            news_step.depends_on = [content_steps[-1].id]
+
+        source_ids = {source.id for source in updated.sources}
+        for source in news_sources:
+            if source.id not in source_ids:
+                updated.sources.append(source)
+                source_ids.add(source.id)
+        updated.evidence.extend(news_evidence)
+
+        verification_index = next(
+            (
+                index
+                for index, step in enumerate(updated.steps)
+                if step.kind == StepKind.VERIFICATION
+            ),
+            len(updated.steps),
+        )
+        updated.steps.insert(verification_index, news_step)
+
+        if existing is None or existing_claim_ids != new_claim_ids:
+            if updated.final_review_status == HumanReviewStatus.APPROVED:
+                updated.final_review_status = HumanReviewStatus.IN_REVIEW
+
+        return AnalysisRun.model_validate(updated.model_dump(mode="python"))
+
     def _require_live_model(self) -> None:
         if self.provider.kind == "deterministic":
             raise ValueError(
@@ -441,8 +586,8 @@ class GuideState:
 
     def _guided_loaded_analysis(self) -> AnalysisRun:
         if self.policy_analysis is None:
-            return make_guided_demo()
-        if self.response_analysis is None:
+            loaded = make_guided_demo()
+        elif self.response_analysis is None:
             loaded = AnalysisRun.model_validate(
                 self.policy_analysis.model_dump(mode="python")
             )
@@ -451,8 +596,9 @@ class GuideState:
             loaded.final_review_status = HumanReviewStatus.NOT_REVIEWED
             for step in loaded.steps:
                 step.human_review.status = HumanReviewStatus.NOT_REVIEWED
-            return AnalysisRun.model_validate(loaded.model_dump(mode="python"))
-        return _guided_combined(self.policy_analysis, self.response_analysis)
+        else:
+            loaded = _guided_combined(self.policy_analysis, self.response_analysis)
+        return self._sync_news_review_step(loaded)
 
     def reset(self, mode: str = "guided") -> AnalysisRun:
         if mode == "rush":
@@ -510,6 +656,7 @@ class GuideState:
         )
 
         self.news_discovery = discovery
+        self.analysis = self._sync_news_review_step(self.analysis)
         return self.news_status_payload()
 
     def news_status_payload(self) -> dict[str, Any]:
@@ -717,9 +864,11 @@ class GuideState:
             mode=AnalysisMode.GUIDED,
         )
         self.response_analysis = response_analysis
-        self.analysis = _guided_combined(
-            self.policy_analysis,
-            response_analysis,
+        self.analysis = self._sync_news_review_step(
+            _guided_combined(
+                self.policy_analysis,
+                response_analysis,
+            )
         )
         return self.analysis
 
@@ -993,10 +1142,12 @@ class GuideState:
                 if self.response_analysis is not None
                 else _empty_response_analysis(policy_run)
             )
-        self.analysis = run_rush_analysis(
-            policy_run,
-            response_run,
-            self.provider.model_call(),
+        self.analysis = self._sync_news_review_step(
+            run_rush_analysis(
+                policy_run,
+                response_run,
+                self.provider.model_call(),
+            )
         )
         return self.analysis
 
