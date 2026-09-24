@@ -38,10 +38,10 @@ class NotTheFroutendDemoTests(unittest.TestCase):
             HumanReviewStatus.IN_REVIEW,
         )
         self.assertIn(
-            "[claim-two] (AI-generated) Covered providers are explicitly "
-            "identified by the policy.",
+            "Covered providers are explicitly identified by the policy. [claim-two]",
             brief.ai_output,
         )
+        self.assertNotIn("Exact passage:", brief.ai_output)
 
 
 if __name__ == "__main__":
