@@ -107,6 +107,54 @@ class RevisionCompareTests(unittest.TestCase):
         ]
         self.assertTrue(affected_changes)
 
+    def test_fuzzy_matching_shortlists_candidates_instead_of_all_pairs(self) -> None:
+        paragraphs_before = [
+            f"Section {i} requires covered providers to file report {i} within 30 days."
+            for i in range(60)
+        ]
+        paragraphs_after = [
+            (
+                f"Section {i} requires covered providers to file report {i} within "
+                + ("45 days." if i % 7 == 0 else "30 days.")
+            )
+            for i in range(60)
+        ]
+        older = policy_doc(
+            "2025-10000",
+            "2025-01-01",
+            "\n\n".join(paragraphs_before),
+        )
+        newer = policy_doc(
+            "2026-20000",
+            "2026-01-01",
+            "\n\n".join(paragraphs_after),
+        )
+
+        calls = 0
+
+        class CountingMatcher:
+            def __init__(self, *args, **kwargs):
+                nonlocal calls
+                calls += 1
+                from difflib import SequenceMatcher as RealMatcher
+                self._inner = RealMatcher(*args, **kwargs)
+
+            def ratio(self):
+                return self._inner.ratio()
+
+            def get_opcodes(self):
+                return self._inner.get_opcodes()
+
+        with patch("revision_compare.SequenceMatcher", CountingMatcher):
+            comparison = compare_documents(older, newer)
+
+        self.assertGreater(comparison.changed_count, 0)
+        self.assertLess(
+            calls,
+            400,
+            "candidate-first matcher should avoid near all-pairs fuzzy comparison",
+        )
+
     def test_guide_state_fetches_second_document_without_rerunning_analysis(self) -> None:
         state = GuideState()
         state.document = policy_doc("2025-10000", "2025-01-01", POLICY_TEXT)
