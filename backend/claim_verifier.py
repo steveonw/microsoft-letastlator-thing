@@ -24,6 +24,8 @@ class StrictModel(BaseModel):
 class ClaimVerificationOutput(StrictModel):
     status: VerificationStatus
     explanation: str = Field(min_length=1)
+    supported_part: str | None = None
+    not_established_part: str | None = None
     narrower_wording: str | None = None
 
 
@@ -39,6 +41,8 @@ Rules:
 - Do not rewrite or silently replace the original claim.
 - "supported" means the cited evidence directly and fully substantiates the material parts of the claim.
 - "partially_supported" means the evidence supports some material parts but not all of them.
+- For partially_supported results, briefly state what is supported in supported_part and what is not established or is overstated in not_established_part.
+- For other statuses, supported_part and not_established_part may be null.
 - "needs_clarification" means the claim or evidence is too ambiguous to determine support reliably.
 - "unsupported" means the cited evidence contradicts the claim or does not substantively support it.
 - "needs_human_review" means the support relationship requires legal, technical, contextual, or interpretive judgment that cannot be resolved confidently from the supplied evidence alone.
@@ -49,6 +53,8 @@ Required JSON shape:
 {
   "status": "supported|partially_supported|needs_clarification|unsupported|needs_human_review",
   "explanation": "brief evidence-based explanation",
+  "supported_part": "what the evidence does establish, or null",
+  "not_established_part": "what the evidence does not establish or overstates, or null",
   "narrower_wording": "optional narrower wording, or null"
 }
 """
@@ -170,6 +176,11 @@ def _unparseable_verifier_note(exc: Exception) -> str:
 
 def _verification_note(result: ClaimVerificationOutput) -> str:
     note = f"Semantic verification: {result.explanation}"
+    if result.status == VerificationStatus.PARTIALLY_SUPPORTED:
+        if result.supported_part:
+            note += f" Supported: {result.supported_part}"
+        if result.not_established_part:
+            note += f" Not established: {result.not_established_part}"
     if result.narrower_wording:
         note += f" Suggested narrower wording: {result.narrower_wording}"
     return note
