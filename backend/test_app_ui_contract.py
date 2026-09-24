@@ -215,7 +215,7 @@ class TrustUxCleanupTests(unittest.TestCase):
     def test_phase_seven_build_marker_is_visible(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         html = index_path.read_text(encoding="utf-8")
-        self.assertIn(">build 20<", html)
+        self.assertIn(">build 21<", html)
 
     def test_analysis_prompts_request_atomic_findings(self) -> None:
         policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
@@ -378,6 +378,62 @@ class FactualReportingVisibilityTests(unittest.TestCase):
         self.assertIn("overflow-wrap: anywhere", styles)
         self.assertIn("word-break: break-word", styles)
         self.assertIn("overflow-x: hidden", styles)
+
+
+class MediaReviewSectionTests(unittest.TestCase):
+    def test_media_is_a_real_review_section_in_guided_and_rush_modes(self) -> None:
+        from datetime import datetime, timezone
+
+        from news_sources import NewsDiscovery
+
+        state = GuideState()
+        source = full_stack.Source(
+            id="source-google-news-demo",
+            title="Demo policy coverage",
+            information_type=full_stack.InformationType.FACTUAL_REPORTING,
+            url="https://example.com/demo",
+            agency="Example News",
+            raw_text="Demo policy coverage",
+            pii_redaction_status=full_stack.PiiRedactionStatus.NOT_APPLICABLE,
+        )
+        state.news_discovery = NewsDiscovery(
+            query="demo policy",
+            checked_at=datetime(2026, 9, 24, tzinfo=timezone.utc),
+            sources=[source],
+        )
+
+        guided = state.reset("guided")
+        media = next(
+            step
+            for step in guided.steps
+            if step.kind == full_stack.StepKind.FACTUAL_REPORTING
+        )
+        self.assertEqual(media.id, "step-related-media")
+        self.assertEqual(media.human_review.status.value, "not_reviewed")
+        self.assertEqual(media.claims[0].text, "Demo policy coverage")
+
+        rushed = state.reset("rush")
+        media = next(
+            step
+            for step in rushed.steps
+            if step.kind == full_stack.StepKind.FACTUAL_REPORTING
+        )
+        opened = state.rush_open(media.id)
+        self.assertEqual(opened.current_step_id, "step-related-media")
+
+    def test_media_step_is_excluded_from_normal_claim_promotion(self) -> None:
+        selective_path = full_stack.ROOT / "backend" / "selective_reanalysis.py"
+        source = selective_path.read_text(encoding="utf-8")
+        self.assertIn("StepKind.FACTUAL_REPORTING", source)
+
+    def test_product_ui_places_media_inside_section_review_flow(self) -> None:
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn('selectedStepId = "step-related-media"', source)
+        self.assertIn('step.kind === "factual_reporting"', source)
+        self.assertIn("Review these discovered media/source pointers", source)
+        self.assertIn('byId("news-card").hidden = true;', source)
 
 
 class PolicyFreshnessVisibilityTests(unittest.TestCase):
