@@ -159,8 +159,8 @@ def _claim_from_finding(
         )
     else:
         note = (
-            "AI-generated interpretation with deterministic citation integrity "
-            "checked; semantic verification is deferred to Chunk 6."
+            "AI-generated interpretation. Citation integrity checked. "
+            "Semantic support still needs verification."
         )
 
     return Claim(
