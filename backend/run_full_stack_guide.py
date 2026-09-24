@@ -52,6 +52,13 @@ from response_sources import (
     source_from_response_record,
 )
 from response_viewpoint_analyst import run_response_viewpoint_analyst
+from revision_compare import (
+    RevisionComparison,
+    compare_documents,
+    leadership_revision_summary,
+    link_existing_claims,
+    revision_audit_text,
+)
 from rush_mode import (
     approve_rush_final_review,
     combine_analysis_runs,
@@ -413,6 +420,7 @@ class GuideState:
         self.response_analysis: AnalysisRun | None = None
         self.last_comment_fetch_report: CommentFetchReport | None = None
         self.policy_status: PolicyStatusSnapshot | None = None
+        self.revision_comparison: RevisionComparison | None = None
 
     def _require_live_model(self) -> None:
         if self.provider.kind == "deterministic":
@@ -466,11 +474,68 @@ class GuideState:
         self.response_analysis = None
         self.last_comment_fetch_report = None
         self.policy_status = status
+        self.revision_comparison = None
         self.analysis = AnalysisRun.model_validate(
             analysis.model_dump(mode="python")
         )
         self.analysis.current_step_id = None
         return AnalysisRun.model_validate(self.analysis.model_dump(mode="python"))
+
+    def compare_revision(self, document_number: str) -> dict[str, Any]:
+        if self.document is None:
+            raise ValueError("Load a Federal Register policy before comparing revisions")
+
+        document_number = document_number.strip()
+        if not document_number:
+            raise ValueError("A second Federal Register document number is required")
+        if document_number == self.document.document_number:
+            raise ValueError("Choose a different Federal Register document to compare")
+
+        try:
+            other_document = fetch_and_normalize(document_number)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not load comparison Federal Register document "
+                f"{document_number}: {exc}"
+            ) from exc
+
+        comparison = compare_documents(self.document, other_document)
+        self.revision_comparison = comparison
+        return self.revision_comparison_payload()
+
+    def revision_comparison_payload(self) -> dict[str, Any]:
+        if self.revision_comparison is None or self.document is None:
+            return {"available": False}
+
+        linked = link_existing_claims(
+            self.revision_comparison,
+            self.analysis,
+            analyzed_document_number=self.document.document_number,
+        )
+        return {
+            "available": True,
+            **linked.model_dump(mode="json"),
+        }
+
+    def _revision_brief_text(self) -> str | None:
+        if self.revision_comparison is None or self.document is None:
+            return None
+        linked = link_existing_claims(
+            self.revision_comparison,
+            self.analysis,
+            analyzed_document_number=self.document.document_number,
+        )
+        return leadership_revision_summary(linked)
+
+    def _revision_audit_text(self) -> str | None:
+        if self.revision_comparison is None or self.document is None:
+            return None
+        linked = link_existing_claims(
+            self.revision_comparison,
+            self.analysis,
+            analyzed_document_number=self.document.document_number,
+        )
+        return revision_audit_text(linked)
 
     def load_comments(
         self,
@@ -941,6 +1006,7 @@ class GuideState:
             value
             for value in (
                 self._policy_status_brief_text(),
+                self._revision_brief_text(),
                 self._corpus_brief_text(),
             )
             if value
@@ -962,6 +1028,7 @@ class GuideState:
             value
             for value in (
                 self._policy_status_brief_text(),
+                self._revision_audit_text(),
                 self._corpus_brief_text(),
             )
             if value
@@ -1216,6 +1283,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/source/comments/status":
             self._send_json(200, STATE.comment_corpus_status())
             return
+        if self.path == "/api/revision-comparison":
+            self._send_json(200, STATE.revision_comparison_payload())
+            return
         if self.path == "/api/audit-log":
             self._send_json(200, {"text": STATE.evidence_audit_log()})
             return
@@ -1262,6 +1332,10 @@ class Handler(BaseHTTPRequestHandler):
 
             if self.path == "/api/source/load":
                 result = STATE.load_policy(
+                    str(body.get("document_number", ""))
+                )
+            elif self.path == "/api/revision-compare":
+                result = STATE.compare_revision(
                     str(body.get("document_number", ""))
                 )
             elif self.path == "/api/source/comments":
