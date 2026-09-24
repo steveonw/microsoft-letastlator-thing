@@ -18,6 +18,7 @@ from guided_review import (
     next_guided_step,
     verify_current_claim,
 )
+from news_sources import NewsDiscovery, fetch_gdelt_news
 from models import (
     AnalysisMode,
     AnalysisRun,
@@ -421,6 +422,7 @@ class GuideState:
         self.last_comment_fetch_report: CommentFetchReport | None = None
         self.policy_status: PolicyStatusSnapshot | None = None
         self.revision_comparison: RevisionComparison | None = None
+        self.news_discovery: NewsDiscovery | None = None
 
     def _require_live_model(self) -> None:
         if self.provider.kind == "deterministic":
@@ -475,11 +477,107 @@ class GuideState:
         self.last_comment_fetch_report = None
         self.policy_status = status
         self.revision_comparison = None
+        self.news_discovery = None
         self.analysis = AnalysisRun.model_validate(
             analysis.model_dump(mode="python")
         )
         self.analysis.current_step_id = None
         return AnalysisRun.model_validate(self.analysis.model_dump(mode="python"))
+
+    def discover_news(
+        self,
+        *,
+        query: str = "",
+        max_articles: int = 8,
+    ) -> dict[str, Any]:
+        if self.document is None:
+            raise ValueError("Load a Federal Register policy before finding related news")
+
+        try:
+            discovery = fetch_gdelt_news(
+                policy_title=self.document.title,
+                publication_date=self.document.publication_date,
+                query=query or None,
+                max_articles=max_articles,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Could not query GDELT for related news: {exc}") from exc
+
+        self.news_discovery = discovery
+        return self.news_status_payload()
+
+    def news_status_payload(self) -> dict[str, Any]:
+        discovery = self.news_discovery
+        if discovery is None:
+            return {"available": False, "sources": []}
+        return {
+            "available": True,
+            **discovery.model_dump(mode="json"),
+        }
+
+    def _news_brief_text(self) -> str | None:
+        discovery = self.news_discovery
+        if discovery is None:
+            return None
+
+        lines = [
+            "## Related factual reporting",
+            f"- Discovery provider: {discovery.provider}",
+            f"- Query: {discovery.query}",
+            f"- Articles found: {len(discovery.sources)}",
+            f"- Limitation: {discovery.limitation}",
+        ]
+        if discovery.window_start or discovery.window_end:
+            lines.append(
+                "- Search window: "
+                f"{discovery.window_start or 'open'} to "
+                f"{discovery.window_end or 'open'}"
+            )
+        for source in discovery.sources[:8]:
+            parts = [source.title]
+            if source.agency:
+                parts.append(source.agency)
+            if source.published_at:
+                parts.append(source.published_at.isoformat())
+            line = " — ".join(parts)
+            if source.url:
+                line += f" — {source.url}"
+            lines.append(f"- [factual_reporting] {line}")
+        return "\n".join(lines)
+
+    def _news_audit_text(self) -> str | None:
+        discovery = self.news_discovery
+        if discovery is None:
+            return None
+
+        lines = [
+            "## Factual reporting source audit",
+            f"- Provider: {discovery.provider}",
+            f"- Query: {discovery.query}",
+            f"- Checked at: {discovery.checked_at.isoformat()}",
+            f"- Limitation: {discovery.limitation}",
+        ]
+        for source in discovery.sources:
+            lines.extend(
+                [
+                    "",
+                    f"### {source.id}",
+                    "- Information type: factual_reporting",
+                    f"- Title: {source.title}",
+                    f"- Publisher/domain: {source.agency or 'unknown'}",
+                    (
+                        "- Published: "
+                        + (
+                            source.published_at.isoformat()
+                            if source.published_at
+                            else "unknown"
+                        )
+                    ),
+                    f"- URL: {source.url or 'unavailable'}",
+                    "- Stored discovery text: headline/title only",
+                ]
+            )
+        return "\n".join(lines)
 
     def compare_revision(self, document_number: str) -> dict[str, Any]:
         if self.document is None:
@@ -1007,6 +1105,7 @@ class GuideState:
             for value in (
                 self._policy_status_brief_text(),
                 self._revision_brief_text(),
+                self._news_brief_text(),
                 self._corpus_brief_text(),
             )
             if value
@@ -1029,6 +1128,7 @@ class GuideState:
             for value in (
                 self._policy_status_brief_text(),
                 self._revision_audit_text(),
+                self._news_audit_text(),
                 self._corpus_brief_text(),
             )
             if value
@@ -1286,6 +1386,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/revision-comparison":
             self._send_json(200, STATE.revision_comparison_payload())
             return
+        if self.path == "/api/news/status":
+            self._send_json(200, STATE.news_status_payload())
+            return
         if self.path == "/api/audit-log":
             self._send_json(200, {"text": STATE.evidence_audit_log()})
             return
@@ -1337,6 +1440,15 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/revision-compare":
                 result = STATE.compare_revision(
                     str(body.get("document_number", ""))
+                )
+            elif self.path == "/api/news":
+                try:
+                    max_articles = int(body.get("max_articles", 8))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("max_articles must be an integer") from exc
+                result = STATE.discover_news(
+                    query=str(body.get("query", "")),
+                    max_articles=max_articles,
                 )
             elif self.path == "/api/source/comments":
                 try:
