@@ -136,6 +136,8 @@ class ClaimVerifierTests(unittest.TestCase):
                 {
                     "status": "partially_supported",
                     "explanation": "The frequency is supported, but the scope is broader than the excerpt.",
+                    "supported_part": "The source establishes a quarterly notification requirement.",
+                    "not_established_part": "The supplied excerpt does not establish the broader scope implied by the claim.",
                     "narrower_wording": "The source describes a quarterly notification requirement.",
                 }
             )
@@ -154,6 +156,14 @@ class ClaimVerifierTests(unittest.TestCase):
         self.assertIn("Suggested narrower wording:", claim.verification_note)
         self.assertIn(
             "The source describes a quarterly notification requirement.",
+            claim.verification_note,
+        )
+        self.assertIn(
+            "Supported: The source establishes a quarterly notification requirement.",
+            claim.verification_note,
+        )
+        self.assertIn(
+            "Not established: The supplied excerpt does not establish the broader scope",
             claim.verification_note,
         )
 
