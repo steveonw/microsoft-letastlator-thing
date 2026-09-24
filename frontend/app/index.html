@@ -11,7 +11,7 @@
     <div class="brand">
       <span class="mark">PolicyTrace</span>
       <span class="tagline">Every finding traced to the source text</span>
-      <span id="build-marker" class="build-marker">build 13</span>
+      <span id="build-marker" class="build-marker">build 14</span>
     </div>
     <div class="topbar-right">
       <span id="mode-pill" class="pill">not started</span>
@@ -108,6 +108,17 @@
             </label>
           </div>
           <button id="load-policy" type="button">Load and analyze this policy</button>
+          <div class="revision-control">
+            <label>Compare with another Federal Register document
+              <input id="revision-doc-number" type="text"
+                     placeholder="enter a different document number" />
+            </label>
+            <button id="compare-revision" type="button">Compare policy versions</button>
+            <p class="muted small">
+              Deterministic text comparison only. PolicyTrace flags changed source
+              language and claim IDs that may need refresh; it does not infer legal effect.
+            </p>
+          </div>
         </div>
 
         <div class="field-group">
@@ -152,6 +163,17 @@
         <a id="policy-status-link" href="#" target="_blank" rel="noopener" hidden>
           Open official status source
         </a>
+      </section>
+
+      <section id="revision-card" class="revision-card" hidden>
+        <div class="col-head">
+          <h2>Revision comparison</h2>
+          <span id="revision-health" class="pill"></span>
+        </div>
+        <div id="revision-metrics" class="revision-metrics"></div>
+        <p id="revision-warning" class="status-warning"></p>
+        <p id="revision-detail" class="muted small"></p>
+        <div id="revision-changes" class="revision-changes"></div>
       </section>
 
       <section id="corpus-card" class="corpus-card" hidden>
