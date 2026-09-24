@@ -18,7 +18,7 @@ from guided_review import (
     next_guided_step,
     verify_current_claim,
 )
-from news_sources import NewsDiscovery, fetch_gdelt_news
+from news_sources import NewsDiscovery, discover_news as discover_news_sources
 from models import (
     AnalysisMode,
     AnalysisRun,
@@ -318,6 +318,7 @@ class RuntimeProvider:
         self.api_key = ""
         self.bearer_token = ""
         self.regulations_api_key = ""
+        self.media_cloud_api_key = ""
 
     def configure(self, data: dict[str, Any]) -> dict[str, Any]:
         kind = str(data.get("kind", "deterministic")).strip().lower()
@@ -330,6 +331,7 @@ class RuntimeProvider:
         api_key = str(data.get("api_key", "")).strip()
         bearer_token = str(data.get("bearer_token", "")).strip()
         regulations_api_key = str(data.get("regulations_api_key", "")).strip()
+        media_cloud_api_key = str(data.get("media_cloud_api_key", "")).strip()
 
         if kind == "openrouter":
             if not api_key:
@@ -360,6 +362,7 @@ class RuntimeProvider:
         self.api_key = api_key
         self.bearer_token = bearer_token
         self.regulations_api_key = regulations_api_key
+        self.media_cloud_api_key = media_cloud_api_key
 
         return self.status()
 
@@ -372,10 +375,15 @@ class RuntimeProvider:
             "has_api_key": bool(self.api_key),
             "has_bearer_token": bool(self.bearer_token),
             "has_regulations_api_key": bool(self.regulations_api_key),
+            "has_media_cloud_api_key": bool(self.media_cloud_api_key),
             "credentials_storage": "process_memory_only",
             "regulations_note": (
                 "Used only by the local live-comment ingestion route and kept "
                 "in process memory."
+            ),
+            "media_cloud_note": (
+                "Optional. Used only for historical factual-reporting discovery "
+                "and kept in process memory."
             ),
         }
 
@@ -493,15 +501,13 @@ class GuideState:
         if self.document is None:
             raise ValueError("Load a Federal Register policy before finding related news")
 
-        try:
-            discovery = fetch_gdelt_news(
-                policy_title=self.document.title,
-                publication_date=self.document.publication_date,
-                query=query or None,
-                max_articles=max_articles,
-            )
-        except Exception as exc:
-            raise RuntimeError(f"Could not query GDELT for related news: {exc}") from exc
+        discovery = discover_news_sources(
+            policy_title=self.document.title,
+            publication_date=self.document.publication_date,
+            query=query or None,
+            max_articles=max_articles,
+            media_cloud_api_key=self.provider.media_cloud_api_key,
+        )
 
         self.news_discovery = discovery
         return self.news_status_payload()
@@ -527,6 +533,11 @@ class GuideState:
             f"- Articles found: {len(discovery.sources)}",
             f"- Limitation: {discovery.limitation}",
         ]
+        for attempt in discovery.provider_attempts:
+            lines.append(
+                f"- Provider attempt: {attempt.provider} [{attempt.status}] "
+                f"{attempt.detail}"
+            )
         if discovery.window_start or discovery.window_end:
             lines.append(
                 "- Search window: "
@@ -557,6 +568,11 @@ class GuideState:
             f"- Checked at: {discovery.checked_at.isoformat()}",
             f"- Limitation: {discovery.limitation}",
         ]
+        for attempt in discovery.provider_attempts:
+            lines.append(
+                f"- Provider attempt: {attempt.provider} [{attempt.status}] "
+                f"{attempt.detail}"
+            )
         for source in discovery.sources:
             lines.extend(
                 [
