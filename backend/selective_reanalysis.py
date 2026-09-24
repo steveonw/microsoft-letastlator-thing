@@ -279,7 +279,11 @@ def _brief_eligible_steps(analysis: AnalysisRun) -> list[AnalysisStep]:
     globally_approved = (
         analysis.final_review_status == HumanReviewStatus.APPROVED
     )
-    excluded_kinds = {StepKind.VERIFICATION, StepKind.DRAFT_BRIEF}
+    excluded_kinds = {
+        StepKind.VERIFICATION,
+        StepKind.DRAFT_BRIEF,
+        StepKind.FACTUAL_REPORTING,
+    }
 
     return [
         step
