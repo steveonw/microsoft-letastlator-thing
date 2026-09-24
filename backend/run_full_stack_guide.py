@@ -42,6 +42,7 @@ from openrouter_client import (
     OpenRouterConfig,
 )
 from policy_interpreter import run_policy_interpreter
+from policy_status import PolicyStatusSnapshot, fetch_policy_status
 from response_sources import (
     CommentFetchError,
     CommentFetchReport,
@@ -410,6 +411,7 @@ class GuideState:
         self.policy_analysis: AnalysisRun | None = None
         self.response_analysis: AnalysisRun | None = None
         self.last_comment_fetch_report: CommentFetchReport | None = None
+        self.policy_status: PolicyStatusSnapshot | None = None
 
     def _require_live_model(self) -> None:
         if self.provider.kind == "deterministic":
@@ -457,10 +459,12 @@ class GuideState:
             self.provider.model_call(),
             mode=AnalysisMode.GUIDED,
         )
+        status = fetch_policy_status(document)
         self.document = document
         self.policy_analysis = analysis
         self.response_analysis = None
         self.last_comment_fetch_report = None
+        self.policy_status = status
         self.analysis = AnalysisRun.model_validate(
             analysis.model_dump(mode="python")
         )
@@ -525,6 +529,89 @@ class GuideState:
             response_analysis,
         )
         return self.analysis
+
+    def policy_status_payload(self) -> dict[str, Any]:
+        document = self.document
+        status = self.policy_status
+        return {
+            "available": bool(status and status.available),
+            "document_number": (
+                None if document is None else document.document_number
+            ),
+            "document_type": (
+                None if document is None else document.document_type
+            ),
+            "source_publication_date": (
+                None
+                if document is None or document.publication_date is None
+                else document.publication_date.isoformat()
+            ),
+            "rin": None if status is None else status.rin,
+            "checked_at": (
+                None
+                if status is None
+                else status.checked_at.isoformat()
+            ),
+            "source_name": (
+                None if status is None else status.source_name
+            ),
+            "source_url": (
+                None if status is None else status.source_url
+            ),
+            "agenda_stage": (
+                None if status is None else status.agenda_stage
+            ),
+            "rin_status": (
+                None if status is None else status.rin_status
+            ),
+            "status_label": (
+                "Not checked"
+                if status is None
+                else status.status_label
+            ),
+            "latest_completed_action": (
+                None
+                if status is None or status.latest_completed_action is None
+                else status.latest_completed_action.model_dump(mode="json")
+            ),
+            "later_material_action_found": (
+                False
+                if status is None
+                else status.later_material_action_found
+            ),
+            "freshness_message": (
+                "Current status has not been checked yet."
+                if status is None
+                else status.freshness_message
+            ),
+            "error": None if status is None else status.error,
+        }
+
+    def _policy_status_brief_text(self) -> str | None:
+        status = self.policy_status_payload()
+        if self.document is None:
+            return None
+
+        lines = [
+            "## Current status / freshness",
+            f"- Source document: {self.document.document_number}",
+            f"- Document type: {self.document.document_type or 'unknown'}",
+            (
+                "- Source publication date: "
+                + (
+                    self.document.publication_date.isoformat()
+                    if self.document.publication_date
+                    else "unknown"
+                )
+            ),
+            f"- RIN: {status['rin'] or 'not available'}",
+            f"- Current status check: {status['status_label']}",
+            f"- Checked at: {status['checked_at'] or 'not checked'}",
+            f"- Freshness note: {status['freshness_message']}",
+        ]
+        if status["source_url"]:
+            lines.append(f"- Status source: {status['source_url']}")
+        return "\n".join(lines)
 
     def comment_corpus_status(self) -> dict[str, Any]:
         report = self.last_comment_fetch_report
@@ -802,14 +889,26 @@ class GuideState:
 
     def brief(self) -> AnalysisRun:
         self.analysis = build_final_brief(self.analysis)
-        corpus_text = self._corpus_brief_text()
-        if corpus_text:
-            brief = next(
-                step
-                for step in self.analysis.steps
-                if step.kind == StepKind.DRAFT_BRIEF
+        brief = next(
+            step
+            for step in self.analysis.steps
+            if step.kind == StepKind.DRAFT_BRIEF
+        )
+
+        additions = [
+            value
+            for value in (
+                self._policy_status_brief_text(),
+                self._corpus_brief_text(),
             )
-            brief.ai_output = (brief.ai_output or "").rstrip() + "\n\n" + corpus_text
+            if value
+        ]
+        if additions:
+            brief.ai_output = (
+                (brief.ai_output or "").rstrip()
+                + "\n\n"
+                + "\n\n".join(additions)
+            )
             self.analysis = AnalysisRun.model_validate(
                 self.analysis.model_dump(mode="python")
             )
@@ -1054,6 +1153,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/provider":
             self._send_json(200, STATE.provider.status())
+            return
+        if self.path == "/api/source/policy/status":
+            self._send_json(200, STATE.policy_status_payload())
             return
         if self.path == "/api/source/comments/status":
             self._send_json(200, STATE.comment_corpus_status())
