@@ -213,10 +213,6 @@ def _mediacloud_article_source(item: dict[str, Any]) -> Source | None:
     )
 
 
-def wayback_history_url(url: str) -> str:
-    return f"https://web.archive.org/web/*/{url}"
-
-
 def fetch_mediacloud_news(
     *,
     policy_title: str,
@@ -471,7 +467,6 @@ def discover_news(
         )
 
     search_query = (query or "").strip() or default_news_query(policy_title)
-    target_start, target_end = historical_publication_window(publication_date)
     attempts: list[NewsProviderAttempt] = []
     sources: list[Source] = []
     seen_urls: set[str] = set()
@@ -616,8 +611,8 @@ def discover_news(
     return NewsDiscovery(
         query=search_query,
         checked_at=datetime.now(timezone.utc),
-        window_start=target_start,
-        window_end=target_end,
+        window_start=None,
+        window_end=None,
         sources=sources,
         provider_attempts=attempts,
     )
