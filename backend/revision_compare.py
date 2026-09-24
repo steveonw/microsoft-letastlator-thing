@@ -674,6 +674,8 @@ def compare_documents(
 
     matcher = SequenceMatcher(None, before_keys, after_keys, autojunk=False)
     changes: list[RevisionChange] = []
+    pending_removed: list[_Unit] = []
+    pending_added: list[_Unit] = []
     sequence = 1
 
     for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
@@ -681,33 +683,11 @@ def compare_documents(
             continue
 
         if opcode == "delete":
-            for unit in before_units[i1:i2]:
-                changes.append(
-                    _make_change(
-                        sequence=sequence,
-                        kind="removed",
-                        before=unit,
-                        after=None,
-                        before_document=before_document,
-                        after_document=after_document,
-                    )
-                )
-                sequence += 1
+            pending_removed.extend(before_units[i1:i2])
             continue
 
         if opcode == "insert":
-            for unit in after_units[j1:j2]:
-                changes.append(
-                    _make_change(
-                        sequence=sequence,
-                        kind="added",
-                        before=None,
-                        after=unit,
-                        before_document=before_document,
-                        after_document=after_document,
-                    )
-                )
-                sequence += 1
+            pending_added.extend(after_units[j1:j2])
             continue
 
         pairs, removed, added = _pair_replacements(
@@ -726,30 +706,53 @@ def compare_documents(
                 )
             )
             sequence += 1
-        for unit in removed:
-            changes.append(
-                _make_change(
-                    sequence=sequence,
-                    kind="removed",
-                    before=unit,
-                    after=None,
-                    before_document=before_document,
-                    after_document=after_document,
-                )
+        pending_removed.extend(removed)
+        pending_added.extend(added)
+
+    # SequenceMatcher can represent moved text as a delete in one opcode and
+    # an insert somewhere else. Give the same conservative crib/token matcher
+    # one document-wide chance to recover those moved/edited provisions.
+    moved_pairs, pending_removed, pending_added = _pair_replacements(
+        pending_removed,
+        pending_added,
+    )
+    for before, after in moved_pairs:
+        changes.append(
+            _make_change(
+                sequence=sequence,
+                kind="changed",
+                before=before,
+                after=after,
+                before_document=before_document,
+                after_document=after_document,
             )
-            sequence += 1
-        for unit in added:
-            changes.append(
-                _make_change(
-                    sequence=sequence,
-                    kind="added",
-                    before=None,
-                    after=unit,
-                    before_document=before_document,
-                    after_document=after_document,
-                )
+        )
+        sequence += 1
+
+    for unit in pending_removed:
+        changes.append(
+            _make_change(
+                sequence=sequence,
+                kind="removed",
+                before=unit,
+                after=None,
+                before_document=before_document,
+                after_document=after_document,
             )
-            sequence += 1
+        )
+        sequence += 1
+    for unit in pending_added:
+        changes.append(
+            _make_change(
+                sequence=sequence,
+                kind="added",
+                before=None,
+                after=unit,
+                before_document=before_document,
+                after_document=after_document,
+            )
+        )
+        sequence += 1
 
     changes.sort(
         key=lambda change: (
