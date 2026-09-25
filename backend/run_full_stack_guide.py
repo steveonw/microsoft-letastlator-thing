@@ -423,6 +423,11 @@ class RuntimeProvider:
 NEWS_REVIEW_STEP_ID = "step-related-media"
 
 
+def _news_claim_id(source: Source) -> str:
+    suffix = source.id.removeprefix("source-")
+    return f"claim-news-{suffix}"
+
+
 def _news_review_materials(
     discovery: NewsDiscovery,
 ) -> tuple[list[Source], list[Evidence], AnalysisStep]:
@@ -436,7 +441,7 @@ def _news_review_materials(
             continue
         suffix = source.id.removeprefix("source-")
         evidence_id = f"evidence-news-{suffix}"
-        claim_id = f"claim-news-{suffix}"
+        claim_id = _news_claim_id(source)
         evidence.append(
             Evidence(
                 id=evidence_id,
@@ -498,6 +503,15 @@ class GuideState:
             (step for step in updated.steps if step.id == NEWS_REVIEW_STEP_ID),
             None,
         )
+        if existing is None:
+            existing = next(
+                (
+                    step
+                    for step in self.analysis.steps
+                    if step.id == NEWS_REVIEW_STEP_ID
+                ),
+                None,
+            )
 
         old_evidence_ids = {
             evidence_id
@@ -545,6 +559,11 @@ class GuideState:
             news_step.version = existing.version
         elif existing is not None:
             news_step.version = existing.version + 1
+            news_step.human_review.excluded_claim_ids = [
+                claim_id
+                for claim_id in existing.human_review.excluded_claim_ids
+                if claim_id in new_claim_ids
+            ]
 
         content_steps = [
             step
@@ -668,16 +687,77 @@ class GuideState:
             **discovery.model_dump(mode="json"),
         }
 
+    def set_news_article_use(
+        self,
+        claim_id: str,
+        *,
+        use: bool,
+    ) -> AnalysisRun:
+        claim_id = claim_id.strip()
+        media_step = next(
+            (
+                step
+                for step in self.analysis.steps
+                if step.id == NEWS_REVIEW_STEP_ID
+            ),
+            None,
+        )
+        if media_step is None:
+            raise ValueError("No related media section is available")
+        if claim_id not in {claim.id for claim in media_step.claims}:
+            raise ValueError(f"unknown media source pointer {claim_id!r}")
+
+        excluded = media_step.human_review.excluded_claim_ids
+        if use:
+            if claim_id in excluded:
+                excluded.remove(claim_id)
+        elif claim_id not in excluded:
+            excluded.append(claim_id)
+
+        media_step.human_review.status = HumanReviewStatus.IN_REVIEW
+        self.analysis.steps = [
+            step
+            for step in self.analysis.steps
+            if step.kind != StepKind.DRAFT_BRIEF
+        ]
+        self.analysis.current_step_id = media_step.id
+        if self.analysis.final_review_status == HumanReviewStatus.APPROVED:
+            self.analysis.final_review_status = HumanReviewStatus.IN_REVIEW
+        self.analysis = AnalysisRun.model_validate(
+            self.analysis.model_dump(mode="python")
+        )
+        return self.analysis
+
+    def _excluded_news_claim_ids(self) -> set[str]:
+        media_step = next(
+            (
+                step
+                for step in self.analysis.steps
+                if step.id == NEWS_REVIEW_STEP_ID
+            ),
+            None,
+        )
+        if media_step is None:
+            return set()
+        return set(media_step.human_review.excluded_claim_ids)
+
     def _news_brief_text(self) -> str | None:
         discovery = self.news_discovery
         if discovery is None:
             return None
 
+        excluded = self._excluded_news_claim_ids()
+        selected_sources = [
+            source
+            for source in discovery.sources
+            if _news_claim_id(source) not in excluded
+        ]
         lines = [
             "## Related factual reporting",
             f"- Discovery provider: {discovery.provider}",
             f"- Query: {discovery.query}",
-            f"- Articles found: {len(discovery.sources)}",
+            f"- Articles discovered: {len(discovery.sources)}",
+            f"- Articles selected for report: {len(selected_sources)}",
             f"- Limitation: {discovery.limitation}",
         ]
         for attempt in discovery.provider_attempts:
@@ -697,7 +777,7 @@ class GuideState:
                 f"{discovery.window_start or 'open'} to "
                 f"{discovery.window_end or 'open'}"
             )
-        for source in discovery.sources[:8]:
+        for source in selected_sources[:8]:
             parts = [source.title]
             if source.agency:
                 parts.append(source.agency)
@@ -708,6 +788,13 @@ class GuideState:
             # including opaque Google News RSS redirect URLs, remain in the
             # evidence audit log and interactive UI.
             lines.append(f"- [factual_reporting] {line}")
+        if len(selected_sources) > 8:
+            lines.append(
+                f"- {len(selected_sources) - 8} additional selected source(s) "
+                "are preserved in the Evidence Audit Log."
+            )
+        if not selected_sources:
+            lines.append("- No discovered media sources were selected for this report.")
         return "\n".join(lines)
 
     def _news_audit_text(self) -> str | None:
@@ -715,6 +802,7 @@ class GuideState:
         if discovery is None:
             return None
 
+        excluded = self._excluded_news_claim_ids()
         lines = [
             "## Factual reporting source audit",
             f"- Provider: {discovery.provider}",
@@ -741,6 +829,14 @@ class GuideState:
                     "- Information type: factual_reporting",
                     f"- Title: {source.title}",
                     f"- Publisher/domain: {source.agency or 'unknown'}",
+                    (
+                        "- Reviewer selection: "
+                        + (
+                            "EXCLUDED BY REVIEWER"
+                            if _news_claim_id(source) in excluded
+                            else "USED IN REPORT"
+                        )
+                    ),
                     (
                         "- Published: "
                         + (
@@ -1629,6 +1725,11 @@ class Handler(BaseHTTPRequestHandler):
                 result = STATE.discover_news(
                     query=str(body.get("query", "")),
                     max_articles=max_articles,
+                )
+            elif self.path == "/api/news/use":
+                result = STATE.set_news_article_use(
+                    str(body.get("claim_id", "")),
+                    use=bool(body.get("use", True)),
                 )
             elif self.path == "/api/source/comments":
                 try:
