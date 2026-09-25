@@ -109,6 +109,10 @@ class FoundryChatClient:
             ) from exc
         except URLError as exc:
             raise RuntimeError(f"Foundry request failed: {exc.reason}") from exc
+        except TimeoutError as exc:
+            raise RuntimeError("Foundry request timed out") from exc
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("Foundry response was not valid JSON") from exc
 
         try:
             content = body["choices"][0]["message"]["content"]
