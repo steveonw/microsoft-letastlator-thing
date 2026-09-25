@@ -1593,9 +1593,11 @@ Return JSON only: {"summary":"..."}.
                         + (", ".join(status["page_requests"]) or "none")
                     ),
                     (
-                        "- Reproducibility note: the seed and positions reproduce "
-                        "the draw against the same Regulations.gov population and "
-                        "sort order; later docket changes can move comment IDs."
+                        "- Reproducibility note: this sample is reproducible while "
+                        f"the docket population remains {status['population_count']} "
+                        "comments and the Regulations.gov sort order is unchanged. "
+                        "If the docket population changes, the same seed can select "
+                        "different positions or comment IDs."
                     ),
                 ]
             )
