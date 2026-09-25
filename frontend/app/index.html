@@ -11,7 +11,7 @@
     <div class="brand">
       <span class="mark">PolicyTrace</span>
       <span class="tagline">Every finding traced to the source text</span>
-      <span id="build-marker" class="build-marker">build 26</span>
+      <span id="build-marker" class="build-marker">build 27</span>
     </div>
     <div class="topbar-right">
       <span id="mode-pill" class="pill">not started</span>
@@ -155,6 +155,23 @@
             </label>
             <label>Comments to analyze
               <input id="intake-max-comments" type="number" min="1" max="100" value="12" />
+            </label>
+            <label>Comment sampling
+              <select id="comment-sampling-method">
+                <option value="random" selected>Random — reproducible spread</option>
+                <option value="earliest">Earliest — legacy order</option>
+              </select>
+              <span class="muted small">
+                Random sampling records a seed and draws across the submitted-comment
+                population. It does not make regulatory comments representative of the public.
+              </span>
+            </label>
+            <label>Sampling seed
+              <input id="comment-sampling-seed" type="number" min="0" step="1"
+                     placeholder="generated automatically" />
+              <span class="muted small">
+                Leave blank to generate a seed. Saved projects and the audit log keep it for reproducibility.
+              </span>
             </label>
             <label>Media query (optional)
               <input id="intake-news-query" type="text"
