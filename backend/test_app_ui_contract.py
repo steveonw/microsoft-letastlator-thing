@@ -215,7 +215,7 @@ class TrustUxCleanupTests(unittest.TestCase):
     def test_phase_seven_build_marker_is_visible(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         html = index_path.read_text(encoding="utf-8")
-        self.assertIn(">build 23<", html)
+        self.assertIn(">build 24<", html)
 
     def test_analysis_prompts_request_atomic_findings(self) -> None:
         policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
@@ -1048,6 +1048,52 @@ class HiddenVerificationRefreshRegressionTests(unittest.TestCase):
         self.assertTrue(
             any(step.kind.value == "draft_brief" for step in briefed.steps)
         )
+
+
+class PolicyIntakeUiContractTests(unittest.TestCase):
+    def test_phase_nine_source_builder_is_the_primary_start_flow(self) -> None:
+        index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        html = index_path.read_text(encoding="utf-8")
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn("Policy Intake / Source Builder", html)
+        self.assertIn('id="policy-search-query"', html)
+        self.assertIn('id="policy-search-results"', html)
+        self.assertIn('id="include-comments"', html)
+        self.assertIn('id="include-news"', html)
+        self.assertIn('id="include-comparison"', html)
+        self.assertIn('id="report-standard"', html)
+        self.assertIn('id="save-project"', html)
+        self.assertIn('id="load-project"', html)
+        self.assertIn('id="start-rush"', html)
+
+        self.assertIn('api("/api/intake/search"', source)
+        self.assertIn('api("/api/intake/select"', source)
+        self.assertIn('api("/api/intake/workload"', source)
+        self.assertIn('api("/api/intake/run"', source)
+        self.assertIn("policytrace_project_schema: 1", source)
+
+    def test_large_comparison_has_two_level_guardrail(self) -> None:
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn("workload.confirmation_steps >= 1", source)
+        self.assertIn("workload.confirmation_steps >= 2", source)
+        self.assertIn("Large comparison:", source)
+        self.assertIn("Confirm very large analysis:", source)
+
+    def test_project_file_never_collects_credentials(self) -> None:
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        source = app_path.read_text(encoding="utf-8")
+        project_block = source.split("function projectPayload()", 1)[1].split(
+            "function saveProjectFile", 1
+        )[0]
+
+        self.assertNotIn("provider-key", project_block)
+        self.assertNotIn("provider-bearer", project_block)
+        self.assertNotIn("regs-key", project_block)
+        self.assertNotIn("mediacloud-key", project_block)
 
 
 class LiveSourceModeChoiceContractTests(unittest.TestCase):
