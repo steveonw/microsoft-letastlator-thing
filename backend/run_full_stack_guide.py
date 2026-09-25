@@ -848,7 +848,17 @@ Return JSON only: {"summary":"..."}.
                     self.load_comments(
                         plan.docket_id,
                         max_comments=plan.max_comments,
+                        sampling_method=plan.comment_sampling_method,
+                        sampling_seed=plan.comment_sampling_seed,
                     )
+                    if (
+                        self.last_comment_fetch_report is not None
+                        and plan.comment_sampling_method == "random"
+                    ):
+                        plan.comment_sampling_seed = (
+                            self.last_comment_fetch_report.sampling_seed
+                        )
+                        self.intake_plan = plan
                 except Exception as exc:
                     self.intake_warnings.append(
                         "Public comments could not be loaded from "
@@ -1196,6 +1206,8 @@ Return JSON only: {"summary":"..."}.
         docket_id: str,
         *,
         max_comments: int = 12,
+        sampling_method: str = "earliest",
+        sampling_seed: int | None = None,
     ) -> AnalysisRun:
         docket_id = docket_id.strip()
         if not docket_id:
@@ -1216,6 +1228,8 @@ Return JSON only: {"summary":"..."}.
                 docket_id,
                 api_key=self.provider.regulations_api_key,
                 max_comments=max_comments,
+                sampling_method=sampling_method,
+                sampling_seed=sampling_seed,
             )
             self.last_comment_fetch_report = fetched.report
             records = fetched.records
