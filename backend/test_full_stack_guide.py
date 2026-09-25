@@ -165,6 +165,8 @@ class FullStackGuideTests(unittest.TestCase):
             "BIS-2024-0047",
             api_key="regulations-secret",
             max_comments=7,
+            sampling_method="earliest",
+            sampling_seed=None,
         )
         self.assertIsNotNone(state.last_comment_fetch_report)
         self.assertEqual(state.last_comment_fetch_report.retrieved_count, 1)
@@ -173,6 +175,89 @@ class FullStackGuideTests(unittest.TestCase):
         self.assertIn("policy_understanding", kinds)
         self.assertIn("public_response", kinds)
         self.assertNotIn("regulations-secret", loaded.model_dump_json())
+
+    def test_random_comment_sampling_metadata_reaches_corpus_and_audit(self) -> None:
+        state = GuideState()
+        state.provider.kind = "openrouter"
+        state.provider.api_key = "fake-model-key"
+        state.provider.model = "openrouter/free"
+        state.provider.regulations_api_key = "regulations-secret"
+        policy_run, response_run = make_rush_inputs()
+        state.document = object()
+        state.policy_analysis = policy_run
+
+        fake_records = [
+            ResponseRecord(
+                id=f"COMMENT-{index}",
+                title=f"Comment {index}",
+                text=f"Text for comment {index}.",
+                information_type=InformationType.PUBLIC_OPINION,
+            )
+            for index in (3, 34)
+        ]
+        fake_sources = response_run.sources[:2]
+        fetch_result = CommentFetchResult(
+            records=fake_records,
+            report=CommentFetchReport(
+                docket_id="BIS-2024-0047",
+                requested_count=2,
+                source_document_count=1,
+                observed_candidate_count=2,
+                attempted_count=2,
+                retrieved_count=2,
+                sampling_method="random",
+                sampling_seed=48213,
+                population_count=240,
+                population_object_ids=["OBJ-1"],
+                selected_positions=[3, 34],
+                selected_comment_ids=["COMMENT-3", "COMMENT-34"],
+                page_requests=["OBJ-1:page 1"],
+            ),
+        )
+
+        with (
+            patch(
+                "run_full_stack_guide.fetch_comments_for_docket_with_report",
+                return_value=fetch_result,
+            ) as fetch_comments,
+            patch(
+                "run_full_stack_guide.source_from_response_record",
+                side_effect=fake_sources,
+            ),
+            patch(
+                "run_full_stack_guide.run_response_viewpoint_analyst",
+                return_value=response_run,
+            ),
+        ):
+            state.load_comments(
+                "BIS-2024-0047",
+                max_comments=2,
+                sampling_method="random",
+                sampling_seed=48213,
+            )
+
+        fetch_comments.assert_called_once_with(
+            "BIS-2024-0047",
+            api_key="regulations-secret",
+            max_comments=2,
+            sampling_method="random",
+            sampling_seed=48213,
+        )
+        status = state.comment_corpus_status()
+        self.assertEqual(status["sampling_method"], "random")
+        self.assertEqual(status["sampling_seed"], 48213)
+        self.assertEqual(status["population_count"], 240)
+        self.assertEqual(status["selected_positions"], [3, 34])
+        self.assertEqual(
+            status["selected_comment_ids"],
+            ["COMMENT-3", "COMMENT-34"],
+        )
+        brief = state._corpus_brief_text()
+        audit = state._corpus_audit_text()
+        self.assertIn("2 of 240 submitted comments", brief)
+        self.assertIn("seed 48213", brief)
+        self.assertIn("Initial logical positions: 3, 34", audit)
+        self.assertIn("Selected comment IDs: COMMENT-3, COMMENT-34", audit)
 
     def test_status_without_rin_is_a_nonfatal_status_note(self) -> None:
         state = GuideState()
