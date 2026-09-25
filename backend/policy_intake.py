@@ -204,7 +204,10 @@ def related_document_suggestions(
                     name.casefold() for name in candidate.agency_names
                 }
                 same_agency = bool(current_agencies & candidate_agencies)
-                if overlap < 0.22 and not same_agency:
+                # Same agency is corroborating context, not enough by itself.
+                # Require meaningful title/topic overlap before suggesting a
+                # document outside the deterministic RIN family.
+                if overlap < 0.22:
                     continue
                 reasons = []
                 if same_agency:
