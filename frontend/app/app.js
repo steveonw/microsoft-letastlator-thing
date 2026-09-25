@@ -2046,6 +2046,7 @@ function boot() {
   });
 
   byId("show-audit").addEventListener("click", showAuditLog);
+  byId("save-project-final").addEventListener("click", saveProjectFile);
 
   byId("approve-brief").addEventListener("click", async () => {
     const flagged = unresolvedFlagCount();
