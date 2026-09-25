@@ -215,7 +215,7 @@ class TrustUxCleanupTests(unittest.TestCase):
     def test_phase_seven_build_marker_is_visible(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         html = index_path.read_text(encoding="utf-8")
-        self.assertIn(">build 26<", html)
+        self.assertIn(">build 27<", html)
 
     def test_analysis_prompts_request_atomic_findings(self) -> None:
         policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
@@ -1061,6 +1061,8 @@ class PolicyIntakeUiContractTests(unittest.TestCase):
         self.assertIn('id="policy-search-query"', html)
         self.assertIn('id="policy-search-results"', html)
         self.assertIn('id="include-comments"', html)
+        self.assertIn('id="comment-sampling-method"', html)
+        self.assertIn('id="comment-sampling-seed"', html)
         self.assertIn('id="include-news"', html)
         self.assertIn('id="include-comparison"', html)
         self.assertIn('id="report-standard"', html)
@@ -1074,7 +1076,21 @@ class PolicyIntakeUiContractTests(unittest.TestCase):
         self.assertIn('api("/api/intake/workload"', source)
         self.assertIn('api("/api/intake/run"', source)
         self.assertIn("policytrace_project_schema: 1", source)
+        self.assertIn("comment_sampling_method", source)
+        self.assertIn("comment_sampling_seed", source)
+        self.assertIn("ensureCommentSamplingSeed", source)
         self.assertIn('byId("save-project-final").addEventListener', source)
+
+    def test_random_comment_sampling_is_visible_and_keeps_representativeness_warning(self) -> None:
+        index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        html = index_path.read_text(encoding="utf-8")
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn("Random — reproducible spread", html)
+        self.assertIn("does not make regulatory comments representative", html)
+        self.assertIn("sampling_method === \"random\"", source)
+        self.assertIn("selected_positions", source)
 
     def test_docket_autofill_requires_explicit_regulations_pointer(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
