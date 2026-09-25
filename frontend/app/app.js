@@ -24,6 +24,10 @@ let revisionVisibleCount = 25;
 let reportView = "leadership";
 let auditLogText = null;
 let apiRequestInFlight = false;
+let intakeState = null;
+let policySearchResults = [];
+let comparisonWorkload = null;
+let pendingProjectExcludedMediaClaimIds = [];
 
 const byId = (id) => document.getElementById(id);
 
@@ -1401,6 +1405,442 @@ async function saveProvider() {
   banner("Settings saved. They stay in this server's memory only.", "info");
 }
 
+function currentExcludedMediaClaimIds() {
+  const media = steps().find((step) => step.kind === "factual_reporting");
+  return media?.human_review?.excluded_claim_ids ??
+    pendingProjectExcludedMediaClaimIds;
+}
+
+function renderPolicySearchResults() {
+  const container = byId("policy-search-results");
+  container.replaceChildren();
+
+  if (!policySearchResults.length) {
+    return;
+  }
+
+  for (const item of policySearchResults) {
+    const card = document.createElement("article");
+    card.className = "intake-result";
+
+    const title = document.createElement("strong");
+    title.textContent = item.title;
+
+    const meta = document.createElement("p");
+    meta.className = "muted small";
+    meta.textContent = [
+      item.document_number,
+      item.document_type,
+      item.publication_date,
+      ...(item.agency_names || []).slice(0, 2),
+    ].filter(Boolean).join(" · ");
+
+    const actions = document.createElement("div");
+    actions.className = "button-row";
+
+    const select = document.createElement("button");
+    select.type = "button";
+    select.textContent = "Select this policy";
+    select.addEventListener("click", () => selectIntakePolicy(item.document_number));
+
+    const preview = document.createElement("button");
+    preview.type = "button";
+    preview.className = "secondary-button";
+    preview.textContent = "Topic preview";
+    preview.addEventListener("click", async () => {
+      preview.disabled = true;
+      preview.textContent = "Loading preview…";
+      const data = await api("/api/intake/preview", {
+        document_number: item.document_number,
+      });
+      preview.disabled = false;
+      preview.textContent = "Topic preview";
+      if (!data) return;
+
+      let box = card.querySelector(".intake-preview");
+      if (!box) {
+        box = document.createElement("div");
+        box.className = "intake-preview";
+        card.append(box);
+      }
+      box.textContent =
+        `${data.preview_kind}: ${data.preview} ${data.note || ""}`;
+    });
+
+    actions.append(select, preview);
+    card.append(title, meta, actions);
+    container.append(card);
+  }
+}
+
+async function searchPolicies() {
+  const query = byId("policy-search-query").value.trim();
+  if (!query) {
+    banner("Enter a policy title, topic, agency, RIN, or search term.", "refused");
+    return;
+  }
+  banner(`Searching the Federal Register for “${query}”…`);
+  const data = await api("/api/intake/search", { query });
+  if (!data) return;
+  policySearchResults = data.results || [];
+  renderPolicySearchResults();
+  banner(
+    policySearchResults.length
+      ? `Found ${policySearchResults.length} Federal Register result${policySearchResults.length === 1 ? "" : "s"}.`
+      : "No matching Federal Register documents were returned.",
+    "info"
+  );
+}
+
+function renderRelatedDocuments() {
+  const container = byId("related-documents");
+  container.replaceChildren();
+  const items = intakeState?.related_documents || [];
+
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted small";
+    empty.textContent =
+      "No related Federal Register documents were suggested from the available official metadata.";
+    container.append(empty);
+    return;
+  }
+
+  for (const item of items) {
+    const card = document.createElement("article");
+    card.className = "intake-result related-result";
+
+    const title = document.createElement("strong");
+    title.textContent = item.title;
+
+    const meta = document.createElement("p");
+    meta.className = "muted small";
+    meta.textContent = [
+      item.document_number,
+      item.document_type,
+      item.publication_date,
+      item.relationship_strength ? `${item.relationship_strength} relationship` : "",
+    ].filter(Boolean).join(" · ");
+
+    const why = document.createElement("p");
+    why.className = "muted small";
+    why.textContent = `Why suggested: ${(item.reasons || []).join(" · ") || "possible relationship"}`;
+
+    const choose = document.createElement("button");
+    choose.type = "button";
+    choose.className = "secondary-button";
+    choose.textContent =
+      byId("intake-comparison-doc").value.trim() === item.document_number
+        ? "Selected for comparison"
+        : "Use for comparison";
+    choose.addEventListener("click", async () => {
+      byId("intake-comparison-doc").value = item.document_number;
+      byId("include-comparison").checked = true;
+      renderRelatedDocuments();
+      await checkComparisonWorkload();
+    });
+
+    card.append(title, meta, why, choose);
+    container.append(card);
+  }
+}
+
+function syncDetectedDockets() {
+  const dockets = intakeState?.document?.docket_ids || [];
+  const select = byId("detected-docket");
+  const input = byId("intake-docket-id");
+  select.replaceChildren();
+
+  if (!dockets.length) {
+    select.hidden = true;
+    input.value = "";
+    byId("include-comments").checked = false;
+    return;
+  }
+
+  byId("include-comments").checked = true;
+  input.value = dockets[0];
+  if (dockets.length === 1) {
+    select.hidden = true;
+    return;
+  }
+
+  select.hidden = false;
+  for (const docket of dockets) {
+    const option = document.createElement("option");
+    option.value = docket;
+    option.textContent = docket;
+    select.append(option);
+  }
+}
+
+function renderIntakeSelection() {
+  const builder = byId("intake-builder");
+  if (!intakeState?.available) {
+    builder.hidden = true;
+    return;
+  }
+  builder.hidden = false;
+
+  const doc = intakeState.document;
+  const summary = byId("selected-policy-summary");
+  summary.replaceChildren();
+
+  const title = document.createElement("strong");
+  title.textContent = doc.title;
+  const meta = document.createElement("p");
+  meta.className = "muted small";
+  meta.textContent = [
+    doc.document_number,
+    doc.document_type,
+    doc.publication_date,
+    ...(doc.agency_names || []).slice(0, 2),
+    doc.regulation_id_numbers?.length
+      ? `RIN ${doc.regulation_id_numbers.join(", ")}`
+      : "",
+    `${doc.character_count?.toLocaleString?.() || doc.character_count || 0} chars`,
+    `${doc.unit_count || 0} units`,
+  ].filter(Boolean).join(" · ");
+  summary.append(title, meta);
+
+  if (policyStatus?.status_label) {
+    const status = document.createElement("p");
+    status.className = "muted small";
+    status.textContent = `Freshness check: ${policyStatus.status_label}`;
+    summary.append(status);
+  }
+
+  syncDetectedDockets();
+  renderRelatedDocuments();
+
+  byId("source-state").textContent =
+    `Selected ${doc.document_number}. Choose the sources you want, check any large comparison, then analyze everything.`;
+  byId("mode-pill").textContent = "building source package";
+}
+
+async function selectIntakePolicy(documentNumber) {
+  const value = String(documentNumber || "").trim();
+  if (!value) {
+    banner("Enter or select a Federal Register document number.", "refused");
+    return null;
+  }
+
+  banner(`Loading official metadata for ${value}…`);
+  const data = await api("/api/intake/select", { document_number: value });
+  if (!data) return null;
+
+  intakeState = data;
+  comparisonWorkload = null;
+  byId("workload-summary").hidden = true;
+  byId("intake-doc-number").value = value;
+  byId("doc-number").value = value;
+  policyStatus = await refreshPolicyStatus();
+  renderIntakeSelection();
+  banner("Policy selected. No AI analysis has started yet.", "info");
+  return data;
+}
+
+async function selectEnteredPolicy() {
+  await selectIntakePolicy(byId("intake-doc-number").value);
+}
+
+function showWorkload(data) {
+  comparisonWorkload = data;
+  const box = byId("workload-summary");
+  if (!data) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  box.className = `workload-summary workload-${data.workload}`;
+  box.textContent = [
+    `Workload: ${data.workload}`,
+    `relative size: ${data.relative_size}×`,
+    `characters: ${data.primary_characters.toLocaleString()} → ${data.comparison_characters.toLocaleString()}`,
+    `document units: ${data.primary_units} → ${data.comparison_units}`,
+    data.warning || "",
+  ].filter(Boolean).join(" · ");
+}
+
+async function checkComparisonWorkload() {
+  const documentNumber = byId("intake-comparison-doc").value.trim();
+  if (!documentNumber) {
+    comparisonWorkload = null;
+    byId("workload-summary").hidden = true;
+    return null;
+  }
+  banner(`Checking comparison size for ${documentNumber}…`);
+  const data = await api("/api/intake/workload", {
+    document_number: documentNumber,
+  });
+  if (!data) return null;
+  showWorkload(data);
+  renderRelatedDocuments();
+  banner("Comparison workload checked. This did not use the AI model.", "info");
+  return data;
+}
+
+function intakePlanFromForm() {
+  return {
+    include_current_status: byId("include-status").checked,
+    include_comments: byId("include-comments").checked,
+    include_news: byId("include-news").checked,
+    include_comparison: byId("include-comparison").checked,
+    docket_id: byId("intake-docket-id").value.trim(),
+    max_comments: Number(byId("intake-max-comments").value) || 12,
+    news_query: byId("intake-news-query").value.trim(),
+    max_articles: Number(byId("intake-max-news").value) || 8,
+    comparison_document_number: byId("intake-comparison-doc").value.trim(),
+    report_standard: byId("report-standard").value,
+  };
+}
+
+async function confirmComparisonWorkload(plan) {
+  if (!plan.include_comparison) return true;
+  if (!plan.comparison_document_number) {
+    banner("Choose a comparison document or turn off Revision comparison.", "refused");
+    return false;
+  }
+
+  let workload = comparisonWorkload;
+  if (
+    !workload ||
+    workload.comparison_document_number !== plan.comparison_document_number
+  ) {
+    workload = await checkComparisonWorkload();
+    if (!workload) return false;
+  }
+
+  if (workload.confirmation_steps >= 1) {
+    const first = window.confirm(
+      `Large comparison: ${workload.comparison_document_number} is about ${workload.relative_size}× the size of the primary document. This can take significantly longer. Continue?`
+    );
+    if (!first) return false;
+  }
+
+  if (workload.confirmation_steps >= 2) {
+    const second = window.confirm(
+      `Confirm very large analysis: ${workload.comparison_units} comparison units will be processed against ${workload.primary_units} primary units. Continue anyway?`
+    );
+    if (!second) return false;
+  }
+  return true;
+}
+
+async function runIntakePackage() {
+  if (!intakeState?.available) {
+    return start("rush");
+  }
+
+  const plan = intakePlanFromForm();
+  if (!(await confirmComparisonWorkload(plan))) return;
+
+  banner("Running the selected source package. This can take a few minutes.");
+  let started = await api("/api/intake/run", {
+    plan,
+    excluded_media_claim_ids: pendingProjectExcludedMediaClaimIds,
+  });
+  if (!started) return;
+
+  const first = (started.steps || []).find(
+    (step) => !["verification", "draft_brief"].includes(step.kind)
+  );
+  if (first) {
+    const opened = await api("/api/rush/open", { step_id: first.id });
+    if (opened) started = opened;
+  }
+
+  run = started;
+  selectedStepId = started.current_step_id ?? null;
+  selectedClaimId = null;
+  pendingProjectExcludedMediaClaimIds = [];
+  policyStatus = await refreshPolicyStatus();
+  revisionComparison = await refreshRevisionComparison();
+  newsStatus = await refreshNewsStatus();
+  corpusStatus = await refreshCorpusStatus();
+  render();
+}
+
+function projectPayload() {
+  if (!intakeState?.available) return null;
+  return {
+    policytrace_project_schema: 1,
+    saved_at: new Date().toISOString(),
+    search_query: byId("policy-search-query").value.trim(),
+    primary_document_number: intakeState.document.document_number,
+    intake_plan: intakePlanFromForm(),
+    excluded_media_claim_ids: currentExcludedMediaClaimIds(),
+  };
+}
+
+function saveProjectFile() {
+  const project = projectPayload();
+  if (!project) {
+    banner("Select a policy before saving a project.", "refused");
+    return;
+  }
+
+  const blob = new Blob([JSON.stringify(project, null, 2)], {
+    type: "application/json",
+  });
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.href = url;
+  link.download = `policytrace-${project.primary_document_number}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  banner("PolicyTrace project JSON saved. Credentials are not included.", "info");
+}
+
+async function applyLoadedProject(project) {
+  byId("policy-search-query").value = project.search_query || "";
+  pendingProjectExcludedMediaClaimIds =
+    project.excluded_media_claim_ids || [];
+
+  const selected = await selectIntakePolicy(project.primary_document_number);
+  if (!selected) return;
+
+  const plan = project.intake_plan || {};
+  byId("include-status").checked = plan.include_current_status !== false;
+  byId("include-comments").checked = Boolean(plan.include_comments);
+  byId("include-news").checked = Boolean(plan.include_news);
+  byId("include-comparison").checked = Boolean(plan.include_comparison);
+  byId("intake-docket-id").value = plan.docket_id || "";
+  byId("intake-max-comments").value = plan.max_comments || 12;
+  byId("intake-news-query").value = plan.news_query || "";
+  byId("intake-max-news").value = plan.max_articles || 8;
+  byId("intake-comparison-doc").value =
+    plan.comparison_document_number || "";
+  byId("report-standard").value = plan.report_standard || "balanced";
+
+  if (plan.comparison_document_number) {
+    await checkComparisonWorkload();
+  } else {
+    renderRelatedDocuments();
+  }
+  banner(
+    "Saved setup loaded. Configure any required credentials, then analyze to refresh the selected sources.",
+    "info"
+  );
+}
+
+async function loadProjectFile(file) {
+  if (!file) return;
+  let raw;
+  try {
+    raw = JSON.parse(await file.text());
+  } catch (_error) {
+    banner("That project file is not valid JSON.", "refused");
+    return;
+  }
+
+  const project = await api("/api/intake/project/validate", { project: raw });
+  if (!project) return;
+  await applyLoadedProject(project);
+}
+
 async function loadPolicy() {
   const documentNumber = byId("doc-number").value.trim();
   if (!documentNumber) {
@@ -1528,7 +1968,20 @@ async function start(mode) {
 }
 
 function boot() {
-  byId("start-rush").addEventListener("click", () => start("rush"));
+  byId("start-rush").addEventListener("click", runIntakePackage);
+  byId("search-policies").addEventListener("click", searchPolicies);
+  byId("select-doc-number").addEventListener("click", selectEnteredPolicy);
+  byId("check-workload").addEventListener("click", checkComparisonWorkload);
+  byId("detected-docket").addEventListener("change", () => {
+    byId("intake-docket-id").value = byId("detected-docket").value;
+  });
+  byId("save-project").addEventListener("click", saveProjectFile);
+  byId("load-project").addEventListener("click", () => byId("project-file").click());
+  byId("project-file").addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    await loadProjectFile(file);
+    event.target.value = "";
+  });
 
   byId("save-provider").addEventListener("click", saveProvider);
   byId("provider-kind").addEventListener("change", syncProviderFields);
@@ -1567,6 +2020,14 @@ function boot() {
     revisionVisibleCount = 25;
     reportView = "leadership";
     auditLogText = null;
+    intakeState = null;
+    policySearchResults = [];
+    comparisonWorkload = null;
+    pendingProjectExcludedMediaClaimIds = [];
+    byId("policy-search-results").replaceChildren();
+    byId("related-documents").replaceChildren();
+    byId("intake-builder").hidden = true;
+    byId("workload-summary").hidden = true;
     byId("brief-screen").hidden = true;
     banner("");
     render();
