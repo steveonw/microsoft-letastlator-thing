@@ -1550,6 +1550,66 @@ Return JSON only: {"summary":"..."}.
         ]
         return "\n".join(lines)
 
+    def _corpus_audit_text(self) -> str | None:
+        base = self._corpus_brief_text()
+        status = self.comment_corpus_status()
+        if base is None or not status["available"]:
+            return base
+
+        details = ["## Comment sampling receipt"]
+        if status["sampling_method"] == "random":
+            details.extend(
+                [
+                    f"- Sampling seed: {status['sampling_seed']}",
+                    (
+                        "- Population object IDs: "
+                        + (", ".join(status["population_object_ids"]) or "none")
+                    ),
+                    (
+                        "- Initial logical positions: "
+                        + (
+                            ", ".join(
+                                str(value) for value in status["selected_positions"]
+                            )
+                            or "none"
+                        )
+                    ),
+                    (
+                        "- Replacement logical positions: "
+                        + (
+                            ", ".join(
+                                str(value)
+                                for value in status["replacement_positions"]
+                            )
+                            or "none"
+                        )
+                    ),
+                    (
+                        "- Selected comment IDs: "
+                        + (", ".join(status["selected_comment_ids"]) or "none")
+                    ),
+                    (
+                        "- Regulations.gov list pages fetched: "
+                        + (", ".join(status["page_requests"]) or "none")
+                    ),
+                    (
+                        "- Reproducibility note: the seed and positions reproduce "
+                        "the draw against the same Regulations.gov population and "
+                        "sort order; later docket changes can move comment IDs."
+                    ),
+                ]
+            )
+        else:
+            details.append(
+                "- Sampling method: earliest available comments; no random "
+                "sampling seed or logical positions were used."
+            )
+            details.append(
+                "- Selected comment IDs: "
+                + (", ".join(status["selected_comment_ids"]) or "none")
+            )
+        return base + "\n\n" + "\n".join(details)
+
     def guided_begin(self, step_id: str | None = None) -> AnalysisRun:
         self.analysis = begin_guided_review(self.analysis, step_id=step_id)
         return self.analysis
@@ -1760,7 +1820,7 @@ Return JSON only: {"summary":"..."}.
             for value in (
                 self._policy_status_brief_text(),
                 self._revision_audit_text(),
-                self._corpus_brief_text(),
+                self._corpus_audit_text(),
                 self._news_audit_text(),
                 self._intake_limits_brief_text(),
             )
