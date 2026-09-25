@@ -16,6 +16,12 @@ class AnalysisMode(str, Enum):
     RUSH = "rush"
 
 
+class ReportStandard(str, Enum):
+    STRICT = "strict"
+    BALANCED = "balanced"
+    EXPLORATORY = "exploratory"
+
+
 class InformationType(str, Enum):
     OFFICIAL_POLICY = "official_policy"
     OFFICIAL_CONTEXT = "official_context"
@@ -166,6 +172,7 @@ class AnalysisRun(StrictModel):
     steps: list[AnalysisStep] = Field(default_factory=list)
     current_step_id: str | None = None
     final_review_status: HumanReviewStatus = HumanReviewStatus.NOT_REVIEWED
+    report_standard: ReportStandard = ReportStandard.BALANCED
 
     @model_validator(mode="after")
     def check_references_and_evidence(self) -> "AnalysisRun":
@@ -234,6 +241,7 @@ class AnalysisRun(StrictModel):
             step_claim_ids = {claim.id for claim in step.claims}
             unknown_flags = set(step.human_review.flagged_claim_ids) - step_claim_ids
             unknown_edits = set(step.human_review.edited_claim_ids) - step_claim_ids
+            unknown_excluded = set(step.human_review.excluded_claim_ids) - step_claim_ids
             if unknown_flags:
                 raise ValueError(
                     f"{step.id} flags missing claims: {sorted(unknown_flags)}"
@@ -241,6 +249,10 @@ class AnalysisRun(StrictModel):
             if unknown_edits:
                 raise ValueError(
                     f"{step.id} edits missing claims: {sorted(unknown_edits)}"
+                )
+            if unknown_excluded:
+                raise ValueError(
+                    f"{step.id} excludes missing claims: {sorted(unknown_excluded)}"
                 )
 
             for claim in step.claims:
