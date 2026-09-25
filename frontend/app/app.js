@@ -332,6 +332,7 @@ function renderPolicyStatus() {
     `Federal Register matches for RIN: ${allFr.length}`,
     `Later Federal Register documents: ${laterFr.length}`,
     policyStatus.checked_at ? `Checked: ${policyStatus.checked_at}` : "",
+    policyStatus.status_error ? `Status note: ${policyStatus.status_error}` : "",
   ].filter(Boolean);
   byId("policy-status-detail").textContent = detail.join(" · ");
 
@@ -1433,7 +1434,24 @@ function renderPolicySearchResults() {
       item.document_type,
       item.publication_date,
       ...(item.agency_names || []).slice(0, 2),
+      item.regulation_id_numbers?.length
+        ? `RIN ${item.regulation_id_numbers.join(", ")}`
+        : "",
+      item.comments_close_on
+        ? `comments close ${item.comments_close_on}`
+        : "",
+      Number.isInteger(item.comments_count)
+        ? `${item.comments_count} comment${item.comments_count === 1 ? "" : "s"}`
+        : "",
     ].filter(Boolean).join(" · ");
+
+    const docket = document.createElement("p");
+    docket.className = "muted small";
+    docket.textContent = item.docket?.note || "";
+
+    const abstract = document.createElement("p");
+    abstract.className = "muted small";
+    abstract.textContent = shortText(item.abstract || "", 320);
 
     const actions = document.createElement("div");
     actions.className = "button-row";
@@ -1468,7 +1486,10 @@ function renderPolicySearchResults() {
     });
 
     actions.append(select, preview);
-    card.append(title, meta, actions);
+    card.append(title, meta);
+    if (abstract.textContent) card.append(abstract);
+    if (docket.textContent) card.append(docket);
+    card.append(actions);
     container.append(card);
   }
 }
@@ -1480,7 +1501,10 @@ async function searchPolicies() {
     return;
   }
   banner(`Searching the Federal Register for “${query}”…`);
-  const data = await api("/api/intake/search", { query });
+  const data = await api("/api/intake/search", {
+    query,
+    include_notices: byId("include-notices-search").checked,
+  });
   if (!data) return;
   policySearchResults = data.results || [];
   renderPolicySearchResults();
@@ -1546,30 +1570,42 @@ function renderRelatedDocuments() {
 }
 
 function syncDetectedDockets() {
-  const dockets = intakeState?.document?.docket_ids || [];
+  const detection = intakeState?.document?.docket_detection || {
+    status: "none",
+    candidates: [],
+    note: "No Regulations.gov comment docket was detected.",
+  };
   const select = byId("detected-docket");
   const input = byId("intake-docket-id");
+  const note = byId("docket-detection-note");
   select.replaceChildren();
+  note.textContent = detection.note || "";
 
-  if (!dockets.length) {
+  if (detection.status === "single" && detection.docket_id) {
     select.hidden = true;
-    input.value = "";
-    byId("include-comments").checked = false;
+    input.value = detection.docket_id;
+    byId("include-comments").checked = true;
     return;
   }
 
-  byId("include-comments").checked = true;
-  input.value = dockets[0];
-  if (dockets.length === 1) {
+  input.value = "";
+  byId("include-comments").checked = false;
+
+  if (detection.status !== "multiple" || !(detection.candidates || []).length) {
     select.hidden = true;
     return;
   }
 
   select.hidden = false;
-  for (const docket of dockets) {
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Choose a verified docket";
+  select.append(placeholder);
+
+  for (const candidate of detection.candidates || []) {
     const option = document.createElement("option");
-    option.value = docket;
-    option.textContent = docket;
+    option.value = candidate.docket_id;
+    option.textContent = candidate.docket_id;
     select.append(option);
   }
 }
@@ -1758,7 +1794,16 @@ async function runIntakePackage() {
   revisionComparison = await refreshRevisionComparison();
   newsStatus = await refreshNewsStatus();
   corpusStatus = await refreshCorpusStatus();
+  intakeState = await api("/api/intake/current");
   render();
+
+  const warnings = intakeState?.warnings || [];
+  if (warnings.length) {
+    banner(
+      `Analysis continued with ${warnings.length} disclosed source acquisition warning${warnings.length === 1 ? "" : "s"}: ${warnings.join(" ")}`,
+      "info"
+    );
+  }
 }
 
 function projectPayload() {
@@ -1767,6 +1812,7 @@ function projectPayload() {
     policytrace_project_schema: 1,
     saved_at: new Date().toISOString(),
     search_query: byId("policy-search-query").value.trim(),
+    include_notices: byId("include-notices-search").checked,
     primary_document_number: intakeState.document.document_number,
     intake_plan: intakePlanFromForm(),
     excluded_media_claim_ids: currentExcludedMediaClaimIds(),
@@ -1796,6 +1842,7 @@ function saveProjectFile() {
 
 async function applyLoadedProject(project) {
   byId("policy-search-query").value = project.search_query || "";
+  byId("include-notices-search").checked = Boolean(project.include_notices);
   pendingProjectExcludedMediaClaimIds =
     project.excluded_media_claim_ids || [];
 
@@ -1973,7 +2020,9 @@ function boot() {
   byId("select-doc-number").addEventListener("click", selectEnteredPolicy);
   byId("check-workload").addEventListener("click", checkComparisonWorkload);
   byId("detected-docket").addEventListener("change", () => {
-    byId("intake-docket-id").value = byId("detected-docket").value;
+    const value = byId("detected-docket").value;
+    byId("intake-docket-id").value = value;
+    if (value) byId("include-comments").checked = true;
   });
   byId("save-project").addEventListener("click", saveProjectFile);
   byId("load-project").addEventListener("click", () => byId("project-file").click());
