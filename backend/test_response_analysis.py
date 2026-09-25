@@ -454,6 +454,230 @@ class ResponseSourceTests(unittest.TestCase):
         self.assertEqual(report.attempted_count, 2)
         self.assertEqual(len(report.failures), 2)
 
+    def test_random_comment_sampling_is_reproducible_across_document_objects(self) -> None:
+        def fake_get_json(path, *, api_key, params=None, timeout=30):
+            del api_key, timeout
+            params = params or {}
+            if path == "/documents":
+                return {
+                    "data": [
+                        {"attributes": {"objectId": "OBJ-B"}},
+                        {"attributes": {"objectId": "OBJ-A"}},
+                    ]
+                }
+            if path == "/comments":
+                object_id = params["filter[commentOnId]"]
+                if params.get("page[size]") == 1:
+                    return {
+                        "data": [{"id": f"{object_id}-COUNT"}],
+                        "meta": {
+                            "totalElements": 5 if object_id == "OBJ-A" else 7
+                        },
+                    }
+                count = 5 if object_id == "OBJ-A" else 7
+                return {
+                    "data": [
+                        {"id": f"{object_id}-COMMENT-{index}"}
+                        for index in range(1, count + 1)
+                    ],
+                    "meta": {"totalElements": count},
+                }
+            raise AssertionError(f"unexpected path {path}")
+
+        def fake_fetch(comment_id, *, api_key, timeout):
+            del api_key, timeout
+            return ResponseRecord(
+                id=comment_id,
+                title=comment_id,
+                text=f"Text for {comment_id}.",
+                information_type=InformationType.PUBLIC_OPINION,
+            )
+
+        def run(seed):
+            with (
+                patch("response_sources._get_json", side_effect=fake_get_json),
+                patch(
+                    "response_sources._fetch_comment_record",
+                    side_effect=fake_fetch,
+                ),
+            ):
+                return fetch_comments_for_docket_with_report(
+                    "DEMO-DOCKET",
+                    api_key="test-key",
+                    max_comments=4,
+                    sampling_method="random",
+                    sampling_seed=seed,
+                )
+
+        first = run(48213)
+        second = run(48213)
+
+        self.assertEqual(first.report.population_count, 12)
+        self.assertEqual(first.report.population_object_ids, ["OBJ-A", "OBJ-B"])
+        self.assertEqual(first.report.selected_positions, second.report.selected_positions)
+        self.assertEqual(
+            first.report.selected_comment_ids,
+            second.report.selected_comment_ids,
+        )
+        self.assertEqual(
+            len(first.report.selected_positions),
+            len(set(first.report.selected_positions)),
+        )
+        self.assertEqual(first.report.sampling_seed, 48213)
+        self.assertTrue(first.report.page_requests)
+
+    def test_random_comment_sampling_changes_with_seed(self) -> None:
+        def fake_get_json(path, *, api_key, params=None, timeout=30):
+            del api_key, timeout
+            params = params or {}
+            if path == "/documents":
+                return {"data": [{"attributes": {"objectId": "OBJ-1"}}]}
+            if path == "/comments" and params.get("page[size]") == 1:
+                return {
+                    "data": [{"id": "COUNT"}],
+                    "meta": {"totalElements": 30},
+                }
+            if path == "/comments":
+                return {
+                    "data": [
+                        {"id": f"COMMENT-{index}"}
+                        for index in range(1, 31)
+                    ],
+                    "meta": {"totalElements": 30},
+                }
+            raise AssertionError(f"unexpected path {path}")
+
+        def fake_fetch(comment_id, *, api_key, timeout):
+            del api_key, timeout
+            return ResponseRecord(
+                id=comment_id,
+                title=comment_id,
+                text=f"Text for {comment_id}.",
+                information_type=InformationType.PUBLIC_OPINION,
+            )
+
+        def positions(seed):
+            with (
+                patch("response_sources._get_json", side_effect=fake_get_json),
+                patch(
+                    "response_sources._fetch_comment_record",
+                    side_effect=fake_fetch,
+                ),
+            ):
+                result = fetch_comments_for_docket_with_report(
+                    "DEMO-DOCKET",
+                    api_key="test-key",
+                    max_comments=6,
+                    sampling_method="random",
+                    sampling_seed=seed,
+                )
+            return result.report.selected_positions
+
+        self.assertNotEqual(positions(1), positions(2))
+
+    def test_random_sampling_replacements_are_deterministic(self) -> None:
+        def fake_get_json(path, *, api_key, params=None, timeout=30):
+            del api_key, timeout
+            params = params or {}
+            if path == "/documents":
+                return {"data": [{"attributes": {"objectId": "OBJ-1"}}]}
+            if path == "/comments" and params.get("page[size]") == 1:
+                return {
+                    "data": [{"id": "COUNT"}],
+                    "meta": {"totalElements": 20},
+                }
+            if path == "/comments":
+                return {
+                    "data": [
+                        {"id": f"COMMENT-{index}"}
+                        for index in range(1, 21)
+                    ],
+                    "meta": {"totalElements": 20},
+                }
+            raise AssertionError(f"unexpected path {path}")
+
+        def successful_fetch(comment_id, *, api_key, timeout):
+            del api_key, timeout
+            return ResponseRecord(
+                id=comment_id,
+                title=comment_id,
+                text=f"Text for {comment_id}.",
+                information_type=InformationType.PUBLIC_OPINION,
+            )
+
+        with (
+            patch("response_sources._get_json", side_effect=fake_get_json),
+            patch(
+                "response_sources._fetch_comment_record",
+                side_effect=successful_fetch,
+            ),
+        ):
+            baseline = fetch_comments_for_docket_with_report(
+                "DEMO-DOCKET",
+                api_key="test-key",
+                max_comments=4,
+                sampling_method="random",
+                sampling_seed=99,
+            )
+        failed_id = baseline.report.selected_comment_ids[0]
+
+        def flaky_fetch(comment_id, *, api_key, timeout):
+            if comment_id == failed_id:
+                raise RuntimeError("simulated detail failure")
+            return successful_fetch(
+                comment_id,
+                api_key=api_key,
+                timeout=timeout,
+            )
+
+        def run_with_failure():
+            with (
+                patch("response_sources._get_json", side_effect=fake_get_json),
+                patch(
+                    "response_sources._fetch_comment_record",
+                    side_effect=flaky_fetch,
+                ),
+            ):
+                return fetch_comments_for_docket_with_report(
+                    "DEMO-DOCKET",
+                    api_key="test-key",
+                    max_comments=4,
+                    sampling_method="random",
+                    sampling_seed=99,
+                )
+
+        first = run_with_failure()
+        second = run_with_failure()
+
+        self.assertEqual(first.report.replacement_positions, second.report.replacement_positions)
+        self.assertEqual(first.report.selected_comment_ids, second.report.selected_comment_ids)
+        self.assertTrue(first.report.replacement_positions)
+        self.assertNotIn(failed_id, first.report.selected_comment_ids)
+        self.assertEqual(len(first.records), 4)
+
+    def test_random_sampling_rejects_population_beyond_direct_page_limit(self) -> None:
+        def fake_get_json(path, *, api_key, params=None, timeout=30):
+            del api_key, timeout
+            params = params or {}
+            if path == "/documents":
+                return {"data": [{"attributes": {"objectId": "OBJ-1"}}]}
+            if path == "/comments":
+                return {
+                    "data": [{"id": "COUNT"}],
+                    "meta": {"totalElements": 5001},
+                }
+            raise AssertionError(f"unexpected path {path}")
+
+        with patch("response_sources._get_json", side_effect=fake_get_json):
+            with self.assertRaisesRegex(ValueError, "up to 5000"):
+                fetch_comments_for_docket_with_report(
+                    "DEMO-DOCKET",
+                    api_key="test-key",
+                    max_comments=12,
+                    sampling_method="random",
+                    sampling_seed=7,
+                )
+
 
 class ResponseAnalystTests(unittest.TestCase):
     def test_prompt_contains_only_response_material(self) -> None:
