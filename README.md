@@ -1,20 +1,33 @@
 # PolicyTrace
 
-## Run the connected demo
+**Current contest build: build 27**
 
-From the repository root, install the backend dependencies and start FastAPI:
+PolicyTrace is the working Microsoft / CCI Innovation Challenge application, not
+just the earlier fixture demo. The product UI is `frontend/app/` and is served
+by the PolicyTrace backend.
+
+## Run the current product
+
+From the repository root:
 
 ```bash
 python -m pip install -r backend/requirements.txt
-python -m uvicorn api:app --app-dir backend --reload
+python backend/run_app.py
 ```
 
-Open <http://127.0.0.1:8000/demo/>. The page loads its analysis from
-`GET /api/analysis`, which uses the backend's Federal Register normalization
-and evidence builder with a checked-in fixture. See
-[the demo README](frontend/demo/README.md) for details.
+Then open <http://127.0.0.1:8777/>.
 
-**Planning-stage concept**
+The product supports Federal Register intake, Regulations.gov comments,
+reproducible random sampling, evidence verification, human review, revision
+comparison, factual-reporting source pointers, Leadership Reports, and Evidence
+Audit Logs. Microsoft Foundry is available as the contest model provider through
+the in-app provider panel; credentials stay in process memory and are not saved
+in project JSON.
+
+The older `frontend/demo/` + `backend/api.py` path is retained as a historical
+fixture/reference demo. It is **not** the current contest application.
+
+## What PolicyTrace is
 
 PolicyTrace is an AI-assisted policy analysis workspace designed to help people understand what a policy says, who it may affect, how people are responding, and what evidence supports each conclusion.
 
@@ -294,18 +307,25 @@ Later versions can add additional government APIs, revision comparison, larger-s
 PolicyTrace should help analysts move faster while keeping sources visible, uncertainty explicit, and humans in control.
 
 
-## Current backend milestone
+## Current contest milestone
 
-Chunks 1–8 now have backend implementations:
+Build 27 includes:
 
-1. Shared analysis contract
-2. Federal Register ingestion
-3. Exact evidence grounding
-4. Policy Interpreter
-5. Response & Viewpoint Analyst
-6. Claim Verifier
-7. Guided Mode human review loop
-8. Rush Mode + mandatory final review
+1. Federal Register search and bounded policy intake
+2. Exact evidence grounding and stable Claim IDs
+3. Policy interpretation and separate semantic claim verification
+4. Guided and Rush human-review workflows
+5. Regulations.gov comment ingestion with earliest or seeded random sampling
+6. Current-status/freshness checks with fail-soft limitations
+7. Related factual-reporting source pointers with provider fallback
+8. Deterministic revision comparison and dependency-aware refresh
+9. Strict, Balanced, and Exploratory report-promotion standards
+10. Leadership Report plus a separate Evidence Audit Log
+11. Save/load of the analysis intake setup without credentials
+
+The current working scope is feature-frozen except for contest blockers and
+material bugs. Live Microsoft Foundry validation remains the final mandatory
+contest validation step.
 
 The Claim Verifier can be run against an existing AnalysisRun:
 
