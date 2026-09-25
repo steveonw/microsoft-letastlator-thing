@@ -739,7 +739,7 @@ def fetch_comments_for_docket_with_report(
                 api_key=key,
                 params={
                     "filter[commentOnId]": object_id,
-                    "page[size]": 1,
+                    "page[size]": 5,  # Regulations.gov rejects page sizes below 5
                     "page[number]": 1,
                     "sort": "postedDate,documentId",
                 },
