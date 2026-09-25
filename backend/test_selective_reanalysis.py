@@ -338,7 +338,7 @@ class SelectiveReanalysisTests(unittest.TestCase):
         audit = build_evidence_audit_log(briefed)
 
         self.assertNotIn("[claim-one]", leadership)
-        self.assertIn("1 reviewed finding(s) were withheld", leadership)
+        self.assertIn("1 finding(s) were withheld", leadership)
         self.assertIn("Claim ID: claim-one", audit)
         self.assertIn("Report promotion: BLOCKED", audit)
         self.assertIn("No cited evidence", audit)
