@@ -1511,7 +1511,7 @@ function renderPolicySearchResults() {
 async function searchPolicies() {
   const query = byId("policy-search-query").value.trim();
   if (!query) {
-    banner("Enter a policy title, topic, agency, RIN, or search term.", "refused");
+    banner("Enter a Federal Register search term.", "refused");
     return;
   }
   banner(`Searching the Federal Register for “${query}”…`);
@@ -1524,7 +1524,7 @@ async function searchPolicies() {
   renderPolicySearchResults();
   banner(
     policySearchResults.length
-      ? `Found ${policySearchResults.length} Federal Register result${policySearchResults.length === 1 ? "" : "s"}.`
+      ? `Showing ${policySearchResults.length} Federal Register result${policySearchResults.length === 1 ? "" : "s"}.`
       : "No matching Federal Register documents were returned.",
     "info"
   );
