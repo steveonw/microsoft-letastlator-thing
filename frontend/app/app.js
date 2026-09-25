@@ -766,6 +766,15 @@ function renderSections() {
 
     button.append(title, status);
 
+    if (step.kind === "factual_reporting") {
+      const excluded = new Set(step.human_review?.excluded_claim_ids ?? []);
+      const used = (step.claims ?? []).filter((claim) => !excluded.has(claim.id)).length;
+      const mediaCount = document.createElement("span");
+      mediaCount.className = "tag";
+      mediaCount.textContent = `${used}/${(step.claims ?? []).length} used`;
+      button.append(mediaCount);
+    }
+
     const edits = step.human_review?.edited_claim_ids ?? [];
     if (edits.length) {
       const edited = document.createElement("span");
@@ -844,6 +853,14 @@ function renderClaimCard(claim, step) {
       : say(claim.verification_status);
   top.append(status);
 
+  if (step.kind === "factual_reporting") {
+    const excluded = (step.human_review?.excluded_claim_ids ?? []).includes(claim.id);
+    const selectionTag = document.createElement("span");
+    selectionTag.className = `verdict ${excluded ? "excluded" : "selected-source"}`;
+    selectionTag.textContent = excluded ? "not used" : "use in report";
+    top.append(selectionTag);
+  }
+
   const missingEvidence = !(claim.evidence_ids ?? []).length;
   if (missingEvidence) {
     const warn = document.createElement("span");
@@ -904,6 +921,25 @@ function renderClaimCard(claim, step) {
         link.addEventListener("click", (event) => event.stopPropagation());
         card.append(link);
       }
+
+      const excluded = (step.human_review?.excluded_claim_ids ?? []).includes(claim.id);
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = excluded ? "media-use-toggle" : "media-use-toggle active";
+      toggle.textContent = excluded ? "Use article" : "Don't use article";
+      toggle.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const updated = await api("/api/news/use", {
+          claim_id: claim.id,
+          use: excluded,
+        });
+        if (!updated) return;
+        run = updated;
+        selectedStepId = step.id;
+        selectedClaimId = claim.id;
+        render();
+      });
+      card.append(toggle);
     }
   }
 
@@ -1387,9 +1423,9 @@ async function loadPolicy() {
     policyStatus = await refreshPolicyStatus();
     const title = updated.policy?.title || documentNumber;
     byId("source-state").textContent =
-      `Policy ready: ${title}. Load public comments if you want them, then choose a review mode above.`;
-    byId("mode-pill").textContent = "ready to choose";
-    banner("Live policy loaded. Choose Guided or Rush when your sources are ready.", "info");
+      `Policy ready: ${title}. Add comments or related reporting if you want them, then start analysis above.`;
+    byId("mode-pill").textContent = "ready to analyze";
+    banner("Live policy loaded. Add optional sources, then start Analyze everything, then review.", "info");
   }
 }
 
@@ -1417,8 +1453,8 @@ async function loadComments() {
     byId("source-state").textContent =
       `Policy and public comments are ready: ${retrieved} retrieved from up to ${count} requested` +
       `${failures ? `, with ${failures} disclosed retrieval failure${failures === 1 ? "" : "s"}` : ""}. ` +
-      "Choose Guided or Rush above.";
-    byId("mode-pill").textContent = "ready to choose";
+      "Start Analyze everything, then review above.";
+    byId("mode-pill").textContent = "ready to analyze";
     banner("Live comments analyzed. Corpus limits are tracked for review.", "info");
   }
 }
@@ -1492,7 +1528,6 @@ async function start(mode) {
 }
 
 function boot() {
-  byId("start-guided").addEventListener("click", () => start("guided"));
   byId("start-rush").addEventListener("click", () => start("rush"));
 
   byId("save-provider").addEventListener("click", saveProvider);
