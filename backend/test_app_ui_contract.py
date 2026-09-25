@@ -1076,6 +1076,29 @@ class PolicyIntakeUiContractTests(unittest.TestCase):
         self.assertIn("policytrace_project_schema: 1", source)
         self.assertIn('byId("save-project-final").addEventListener', source)
 
+    def test_docket_autofill_requires_explicit_regulations_pointer(self) -> None:
+        index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        html = index_path.read_text(encoding="utf-8")
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn('id="docket-detection-note"', html)
+        self.assertIn('id="include-notices-search"', html)
+        self.assertIn("docket_detection", source)
+        self.assertNotIn(
+            "const dockets = intakeState?.document?.docket_ids || []",
+            source,
+        )
+        self.assertIn("detection.status === \"single\"", source)
+        self.assertIn("include_notices:", source)
+
+    def test_intake_discloses_optional_source_failures_without_stopping(self) -> None:
+        app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        source = app_path.read_text(encoding="utf-8")
+
+        self.assertIn('api("/api/intake/current")', source)
+        self.assertIn("source acquisition warning", source)
+
     def test_large_comparison_has_two_level_guardrail(self) -> None:
         app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
         source = app_path.read_text(encoding="utf-8")
