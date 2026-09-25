@@ -11,7 +11,7 @@
     <div class="brand">
       <span class="mark">PolicyTrace</span>
       <span class="tagline">Every finding traced to the source text</span>
-      <span id="build-marker" class="build-marker">build 23</span>
+      <span id="build-marker" class="build-marker">build 24</span>
     </div>
     <div class="topbar-right">
       <span id="mode-pill" class="pill">not started</span>
@@ -33,23 +33,14 @@
 
   <main id="stage">
     <section id="start-screen" class="start">
-      <h1>Analyze everything, then review</h1>
+      <h1>Find a policy, choose sources, then review</h1>
       <p class="lede">
-        PolicyTrace runs the analysis up front, then lets you inspect, edit,
-        flag, include, or exclude material before anything is approved.
+        Build the source package first. PolicyTrace does not spend model calls
+        on document search or workload checks; analysis starts only when you confirm the package.
       </p>
-      <div class="choices choices-single">
-        <button id="start-rush" type="button" class="choice">
-          <span class="choice-title">Start analysis and review</span>
-          <span class="choice-body">
-            Analyze the full policy first, then review every saved section.
-            The final report still requires your approval.
-          </span>
-        </button>
-      </div>
 
-      <details class="sources">
-        <summary>Use a real policy and real public comments</summary>
+      <details class="sources" open>
+        <summary>Policy Intake / Source Builder</summary>
 
         <div class="field-group">
           <h3>1. Where the AI runs</h3>
@@ -97,7 +88,130 @@
         </div>
 
         <div class="field-group">
-          <h3>2. The policy</h3>
+          <h3>2. Find or enter a Federal Register document</h3>
+          <div class="fields">
+            <label>Search by title, topic, agency, RIN, or words
+              <input id="policy-search-query" type="text"
+                     placeholder="e.g. H-1B modernization or advanced AI reporting" />
+            </label>
+            <label>Or enter a document number
+              <input id="intake-doc-number" type="text" placeholder="2024-20529" />
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="search-policies" type="button">Search Federal Register</button>
+            <button id="select-doc-number" type="button" class="secondary-button">
+              Select document number
+            </button>
+          </div>
+          <p class="muted small">
+            Search uses FederalRegister.gov metadata. AI topic previews are optional
+            and use only a bounded excerpt from the official document.
+          </p>
+          <div id="policy-search-results" class="intake-results"></div>
+        </div>
+
+        <div id="intake-builder" class="field-group" hidden>
+          <h3>3. Build the analysis package</h3>
+          <div id="selected-policy-summary" class="selected-policy-summary"></div>
+
+          <div class="intake-grid">
+            <label class="check-card">
+              <input id="include-status" type="checkbox" checked />
+              <span><strong>Current status / later actions</strong><br />
+              Check official freshness and related rulemaking metadata.</span>
+            </label>
+
+            <label class="check-card">
+              <input id="include-comments" type="checkbox" checked />
+              <span><strong>Public comments</strong><br />
+              Analyze a bounded Regulations.gov comment sample.</span>
+            </label>
+
+            <label class="check-card">
+              <input id="include-news" type="checkbox" checked />
+              <span><strong>Related media</strong><br />
+              Discover source pointers for the media review section.</span>
+            </label>
+
+            <label class="check-card">
+              <input id="include-comparison" type="checkbox" />
+              <span><strong>Revision comparison</strong><br />
+              Compare one related Federal Register document.</span>
+            </label>
+          </div>
+
+          <div class="fields">
+            <label>Detected Regulations.gov docket
+              <select id="detected-docket" hidden></select>
+              <input id="intake-docket-id" type="text"
+                     placeholder="auto-detected when available" />
+            </label>
+            <label>Comments to analyze
+              <input id="intake-max-comments" type="number" min="1" max="100" value="12" />
+            </label>
+            <label>Media query (optional)
+              <input id="intake-news-query" type="text"
+                     placeholder="leave blank to derive from the policy title" />
+            </label>
+            <label>Media results
+              <input id="intake-max-news" type="number" min="1" max="25" value="8" />
+            </label>
+          </div>
+
+          <h4>Related / comparable official documents</h4>
+          <p class="muted small">
+            Suggestions explain why they appeared. Same-RIN relationships are stronger;
+            title/agency matches are labeled as possible rather than treated as the same rulemaking.
+          </p>
+          <div id="related-documents" class="intake-results"></div>
+
+          <div class="fields">
+            <label>Comparison document (optional)
+              <input id="intake-comparison-doc" type="text"
+                     placeholder="select a suggestion or enter a document number" />
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="check-workload" type="button" class="secondary-button">
+              Check comparison workload
+            </button>
+          </div>
+          <div id="workload-summary" class="workload-summary" hidden></div>
+
+          <label>Report evidence standard
+            <select id="report-standard">
+              <option value="strict">Strict — supported findings only</option>
+              <option value="balanced" selected>Balanced — supported + partly supported</option>
+              <option value="exploratory">Exploratory — also surface unresolved evidence-backed findings separately</option>
+            </select>
+          </label>
+          <p class="muted small">
+            This controls report inclusion only. It never changes the verifier's actual result.
+          </p>
+
+          <div class="project-actions">
+            <button id="save-project" type="button" class="secondary-button">Save project JSON</button>
+            <button id="load-project" type="button" class="secondary-button">Load project JSON</button>
+            <input id="project-file" type="file" accept="application/json,.json" hidden />
+          </div>
+          <p class="muted small">
+            Project files save document/source choices, not API keys, tokens, or other credentials.
+          </p>
+
+          <button id="start-rush" type="button" class="choice intake-start">
+            <span class="choice-title">Analyze everything, then review</span>
+            <span class="choice-body">
+              Run the selected source package, then stop for human review before final approval.
+            </span>
+          </button>
+        </div>
+
+        <details class="advanced-sources">
+          <summary>Advanced / manual source controls</summary>
+
+        <div class="field-group">
+          <h3>Manual policy load</h3>
           <div class="fields">
             <label>Federal Register document number
               <input id="doc-number" type="text" placeholder="2024-20529" value="2024-20529" />
@@ -155,9 +269,9 @@
         </div>
 
         <p id="source-state" class="source-state">
-          No live sources loaded yet. Load a policy, optionally add comments
-          and related reporting, then start the analysis above.
+          No live sources selected yet. Search for a policy or enter a Federal Register document number.
         </p>
+        </details>
       </details>
     </section>
 
