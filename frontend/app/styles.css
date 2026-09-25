@@ -67,6 +67,7 @@ button.ghost { background: transparent; }
 .start { max-width: 760px; margin: 60px auto; padding: 0 20px; }
 .lede { color: var(--ink-soft); margin: 0 0 28px; }
 .choices { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+.choices-single { grid-template-columns: minmax(0, 1fr); }
 
 .choice {
   display: flex; flex-direction: column; gap: 6px; text-align: left;
@@ -198,6 +199,19 @@ button.ghost { background: transparent; }
 .verdict.needs_human_review { background: #eef4fb; color: var(--accent); }
 .verdict.no-evidence { background: #fdf0ef; color: var(--bad); }
 .verdict.human { background: #f1ebfa; color: var(--human); }
+.verdict.selected-source { background: #e8f4ee; color: var(--good); }
+.verdict.excluded { background: #eceff3; color: var(--ink-soft); }
+
+.media-use-toggle {
+  display: inline-block;
+  margin: 8px 0 0 10px;
+  padding: 5px 9px;
+  font-size: 12px;
+}
+.media-use-toggle.active {
+  border-color: #c7d5cb;
+  background: #f4faf6;
+}
 
 .editor { display: flex; flex-direction: column; gap: 8px; }
 .editor textarea {
