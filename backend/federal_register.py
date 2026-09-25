@@ -393,15 +393,15 @@ SEARCH_FIELDS = (
 )
 
 _DOCUMENT_NUMBER_RE = re.compile(
-    r"^(?:\\d{4}|\\d{2}|[A-Z]\\d{1,2})-\\d{3,6}$",
+    r"^(?:\d{4}|\d{2}|[A-Z]\d{1,2})-\d{3,6}$",
     re.IGNORECASE,
 )
 _REGULATIONS_DOCKET_RE = re.compile(
-    r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\\d{4}-(?:[A-Z]-)?\\d{4,}$"
+    r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d{4}-(?:[A-Z]-)?\d{4,}$"
 )
 _CATCH_ALL_DOCKET_RE = re.compile(r"_FRDOC_", re.IGNORECASE)
 _DOCKET_PREFIX_RE = re.compile(
-    r"^\\s*(?:docket\\s*(?:no\\.?|number|id)?\\s*[:#]?\\s*)",
+    r"^\s*(?:docket\s*(?:no\.?|number|id)?\s*[:#]?\s*)",
     re.IGNORECASE,
 )
 
@@ -449,7 +449,7 @@ def looks_like_document_number(text: str) -> bool:
 
 
 def _clean_docket_id(value: Any) -> str:
-    text = str(value or "").replace("\\u2013", "-").replace("\\u2014", "-")
+    text = str(value or "").replace("\u2013", "-").replace("\u2014", "-")
     text = _DOCKET_PREFIX_RE.sub("", text)
     return text.strip().strip(".;,").upper()
 
