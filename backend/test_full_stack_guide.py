@@ -361,6 +361,22 @@ class FullStackGuideTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires OpenRouter"):
             state.load_policy("2024-20529")
 
+    def test_live_analysis_cannot_fall_back_to_deterministic_verifier(self) -> None:
+        state = GuideState()
+        state.policy_analysis = make_guided_demo()
+
+        started = state.guided_begin()
+        claim_id = started.steps[0].claims[0].id
+
+        with self.assertRaisesRegex(ValueError, "requires OpenRouter"):
+            state.guided_verify(claim_id)
+
+        with self.assertRaisesRegex(ValueError, "requires OpenRouter"):
+            state.run_rush()
+
+        with self.assertRaisesRegex(ValueError, "requires OpenRouter"):
+            state.review_reanalysis("step-policy-understanding")
+
     def test_guided_actions_use_authoritative_analysis_state(self) -> None:
         state = GuideState()
 
