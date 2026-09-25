@@ -37,6 +37,8 @@ COMMENT_FETCH_WORKERS = 4
 COMMENT_PAGE_SIZE = 250
 MAX_COMMENT_PAGES = 20
 MAX_RANDOM_COMMENTS_PER_OBJECT = COMMENT_PAGE_SIZE * MAX_COMMENT_PAGES
+DOCUMENT_PAGE_SIZE = 250
+MAX_DOCUMENT_PAGES = 20
 _ATTACHMENT_PLACEHOLDER_RE = re.compile(
     r"^\s*see\s+attached\s+file\(s\)[.]?\s*$",
     re.IGNORECASE,
@@ -660,6 +662,72 @@ def _comment_id_for_random_position(
     return str(comment_id) if comment_id else None
 
 
+def _document_object_ids_for_docket(
+    docket_id: str,
+    *,
+    api_key: str,
+    timeout: int,
+) -> list[str]:
+    object_ids: list[str] = []
+    seen_object_ids: set[str] = set()
+    rows_seen = 0
+
+    for page_number in range(1, MAX_DOCUMENT_PAGES + 1):
+        documents = _get_json(
+            "/documents",
+            api_key=api_key,
+            params={
+                "filter[docketId]": docket_id,
+                "page[size]": DOCUMENT_PAGE_SIZE,
+                "page[number]": page_number,
+            },
+            timeout=timeout,
+        )
+
+        document_rows = documents.get("data")
+        if not isinstance(document_rows, list):
+            raise ValueError("Regulations.gov document search returned no data list")
+
+        rows_seen += len(document_rows)
+        for row in document_rows:
+            if not isinstance(row, dict):
+                continue
+            attrs = row.get("attributes")
+            if not isinstance(attrs, dict):
+                continue
+            object_id = attrs.get("objectId")
+            if not object_id:
+                continue
+            normalized = str(object_id)
+            if normalized in seen_object_ids:
+                continue
+            seen_object_ids.add(normalized)
+            object_ids.append(normalized)
+
+        meta = documents.get("meta")
+        total_elements = None
+        if isinstance(meta, dict) and "totalElements" in meta:
+            try:
+                total_elements = int(meta["totalElements"])
+            except (TypeError, ValueError):
+                total_elements = None
+
+        if not document_rows:
+            break
+        if total_elements is not None and rows_seen >= total_elements:
+            break
+        if len(document_rows) < DOCUMENT_PAGE_SIZE:
+            break
+    else:
+        raise ValueError(
+            "Regulations.gov docket document discovery exceeded the direct "
+            f"paging limit of {MAX_DOCUMENT_PAGES * DOCUMENT_PAGE_SIZE} records; "
+            "PolicyTrace will not silently analyze a partial docket."
+        )
+
+    return object_ids
+
+
 def fetch_comments_for_docket_with_report(
     docket_id: str,
     *,
@@ -689,36 +757,11 @@ def fetch_comments_for_docket_with_report(
         sampling_seed=sampling_seed,
     )
 
-    documents = _get_json(
-        "/documents",
+    object_ids = _document_object_ids_for_docket(
+        docket_id,
         api_key=key,
-        params={
-            "filter[docketId]": docket_id,
-            "page[size]": 100,
-        },
         timeout=timeout,
     )
-
-    document_rows = documents.get("data")
-    if not isinstance(document_rows, list):
-        raise ValueError("Regulations.gov document search returned no data list")
-
-    object_ids: list[str] = []
-    seen_object_ids: set[str] = set()
-    for row in document_rows:
-        if not isinstance(row, dict):
-            continue
-        attrs = row.get("attributes")
-        if not isinstance(attrs, dict):
-            continue
-        object_id = attrs.get("objectId")
-        if not object_id:
-            continue
-        normalized = str(object_id)
-        if normalized in seen_object_ids:
-            continue
-        seen_object_ids.add(normalized)
-        object_ids.append(normalized)
 
     report.source_document_count = len(object_ids)
 
