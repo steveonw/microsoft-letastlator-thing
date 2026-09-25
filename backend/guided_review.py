@@ -211,6 +211,13 @@ def verify_current_claim(
 
         claim.verification_status = result.status
         claim.verification_note = f"Semantic verification: {result.explanation}"
+        if result.status == VerificationStatus.PARTIALLY_SUPPORTED:
+            if result.supported_part:
+                claim.verification_note += f" Supported: {result.supported_part}"
+            if result.not_established_part:
+                claim.verification_note += (
+                    f" Not established: {result.not_established_part}"
+                )
         if result.narrower_wording:
             claim.verification_note += (
                 f" Suggested narrower wording: {result.narrower_wording}"
