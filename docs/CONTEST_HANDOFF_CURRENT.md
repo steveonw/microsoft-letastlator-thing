@@ -461,3 +461,56 @@ Next sequence:
 **Four-AI review consolidation → verify real findings → fix genuine blockers only → Microsoft Foundry full live validation → contest demo / presentation preparation.**
 
 PolicyTrace is near the finish line.
+
+
+## 2026-09-25 independent-audit fixes
+
+Two independent AI audits were compared against the actual current branch before
+changes were made. Confirmed findings were fixed; speculative or false-positive
+findings were not adopted blindly.
+
+Applied fixes:
+
+- Live-source review paths now refuse to fall back to the fictional deterministic
+  verifier after a real policy has been loaded. Guided single-claim verification,
+  Rush verification, and selective review/re-verification require a live provider
+  whenever they would verify real loaded source material.
+- A Rush final-approval override for unreviewed sections can no longer produce a
+  Leadership Report that falsely says every included finding was individually
+  reviewed. The report explicitly discloses the override while preserving the
+  existing explicit-acknowledgement behavior.
+- Microsoft Foundry timeout and malformed outer-response JSON errors are normalized
+  into controlled provider failures so verification can route them to human review
+  instead of leaking unexpected exception types.
+- Regulations.gov docket document discovery now pages across document-object
+  results instead of silently stopping at the first 100 records. Direct discovery
+  remains bounded and refuses silent truncation at the paging boundary.
+- Guided partial-support verification now preserves the verifier's structured
+  "Supported" and "Not established" detail in the verification note, matching the
+  batch verifier's audit quality.
+- DOCX attachment handling checks the uncompressed size of
+  `word/document.xml` before reading/parsing it, preventing a compact ZIP member
+  from expanding without a decompression bound.
+- The branch README and repository landing page now point reviewers to the actual
+  build-27 product (`backend/run_app.py` / `frontend/app/`) rather than the
+  historical fixture demo.
+
+One reported "second edit is ignored" bug was verified as a false positive:
+`edit_current_claim()` preserves the first AI wording in `original_text` but
+updates `claim.text` on every edit.
+
+Post-fix CI: PolicyTrace CI #476 passed. The full backend discovery reported
+265 tests passing, followed by the provider-specific test subsets.
+
+Still outstanding before contest submission:
+
+- Perform and record the live Microsoft Foundry end-to-end validation.
+- Test the selected Foundry deployment's JSON response-format compatibility,
+  quota/rate-limit behavior, wrong credentials, wrong model/endpoint, and
+  malformed/schema-invalid model output.
+- Do not describe dependency refresh as a fresh AI interpretation pass: the
+  current refresh path invalidates affected work and forces re-verification.
+- Describe saved project JSON as the saved analysis setup/intake plan, not as a
+  complete persisted reviewed AnalysisRun.
+- Consider 429 retry/backoff only if the live Foundry rehearsal demonstrates a
+  real need; do not add it speculatively during feature freeze.
