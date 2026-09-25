@@ -3,16 +3,35 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="refresh" content="0; url=./frontend/demo/" />
-    <title>PolicyTrace</title>
-    <script>
-      // Keep the repository root as the public entry point while retaining the
-      // dependency-free demo in frontend/demo.
-      window.location.replace("./frontend/demo/");
-    </script>
+    <title>PolicyTrace build 27</title>
+    <style>
+      body { max-width: 760px; margin: 48px auto; padding: 0 20px;
+             font: 16px/1.55 system-ui, sans-serif; color: #12181f; }
+      code, pre { background: #f3f5f7; border-radius: 6px; }
+      code { padding: 2px 5px; }
+      pre { padding: 14px; overflow: auto; }
+      a { color: #1f5fa8; }
+    </style>
   </head>
   <body>
-    <p>Opening the PolicyTrace analysis workspace…</p>
-    <p><a href="./frontend/demo/">Open the PolicyTrace demo</a></p>
+    <h1>PolicyTrace — build 27</h1>
+    <p>
+      The current PolicyTrace contest application is a local client/server app.
+      The product frontend lives in <code>frontend/app/</code> and is served by
+      <code>backend/run_app.py</code>.
+    </p>
+    <h2>Run the current product</h2>
+    <pre>python -m pip install -r backend/requirements.txt
+python backend/run_app.py</pre>
+    <p>Then open <code>http://127.0.0.1:8777/</code>.</p>
+    <p>
+      <a href="./docs/CONTEST_HANDOFF_CURRENT.md">Current contest handoff</a>
+      ·
+      <a href="./frontend/demo/">Legacy static fixture demo</a>
+    </p>
+    <p>
+      The legacy static demo is retained for reference; it is not the build-27
+      contest application.
+    </p>
   </body>
 </html>
