@@ -195,7 +195,7 @@ class FullStackGuideTests(unittest.TestCase):
             )
             for index in (3, 34)
         ]
-        fake_sources = response_run.sources[:2]
+        fake_source = response_run.sources[0]
         fetch_result = CommentFetchResult(
             records=fake_records,
             report=CommentFetchReport(
@@ -222,7 +222,7 @@ class FullStackGuideTests(unittest.TestCase):
             ) as fetch_comments,
             patch(
                 "run_full_stack_guide.source_from_response_record",
-                side_effect=fake_sources,
+                return_value=fake_source,
             ),
             patch(
                 "run_full_stack_guide.run_response_viewpoint_analyst",
