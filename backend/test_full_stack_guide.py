@@ -258,6 +258,10 @@ class FullStackGuideTests(unittest.TestCase):
         self.assertIn("seed 48213", brief)
         self.assertIn("Initial logical positions: 3, 34", audit)
         self.assertIn("Selected comment IDs: COMMENT-3, COMMENT-34", audit)
+        self.assertIn(
+            "reproducible while the docket population remains 240 comments",
+            audit,
+        )
 
     def test_status_without_rin_is_a_nonfatal_status_note(self) -> None:
         state = GuideState()
