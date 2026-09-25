@@ -1456,6 +1456,28 @@ Return JSON only: {"summary":"..."}.
                 None if report is None else report.observed_candidate_count
             ),
             "attempted_count": None if report is None else report.attempted_count,
+            "sampling_method": (
+                None if report is None else report.sampling_method
+            ),
+            "sampling_seed": None if report is None else report.sampling_seed,
+            "population_count": (
+                None if report is None else report.population_count
+            ),
+            "population_object_ids": (
+                [] if report is None else list(report.population_object_ids)
+            ),
+            "selected_positions": (
+                [] if report is None else list(report.selected_positions)
+            ),
+            "replacement_positions": (
+                [] if report is None else list(report.replacement_positions)
+            ),
+            "selected_comment_ids": (
+                [] if report is None else list(report.selected_comment_ids)
+            ),
+            "page_requests": (
+                [] if report is None else list(report.page_requests)
+            ),
             "retrieved_count": retrieved_count,
             "failed_retrieval_count": len(failures),
             "unusable_retrieval_count": unusable_count,
