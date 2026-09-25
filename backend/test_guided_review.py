@@ -196,6 +196,8 @@ class GuidedReviewTests(unittest.TestCase):
                 {
                     "status": "partially_supported",
                     "explanation": "The evidence supports quarterly timing but not every detail.",
+                    "supported_part": "Quarterly timing is stated.",
+                    "not_established_part": "Other details are not established.",
                     "narrower_wording": "Quarterly notifications are required.",
                 }
             )
@@ -206,6 +208,11 @@ class GuidedReviewTests(unittest.TestCase):
         self.assertEqual(
             claim.verification_status,
             VerificationStatus.PARTIALLY_SUPPORTED,
+        )
+        self.assertIn("Supported: Quarterly timing is stated.", claim.verification_note)
+        self.assertIn(
+            "Not established: Other details are not established.",
+            claim.verification_note,
         )
         self.assertIn("Suggested narrower wording:", claim.verification_note)
         self.assertEqual(verified.current_step_id, "step-one")
