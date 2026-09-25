@@ -299,12 +299,120 @@ button.ghost { background: transparent; }
 .sources h3 { font-size: 14px; margin: 18px 0 6px; }
 .field-group { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 4px; }
 .field-group:first-of-type { border-top: 0; }
+
+.button-row,
+.project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.intake-results {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.intake-result,
+.selected-policy-summary,
+.workload-summary,
+.check-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fafbfd;
+}
+
+.intake-result {
+  padding: 12px;
+}
+
+.intake-result strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.intake-preview {
+  margin-top: 10px;
+  padding: 10px;
+  border-left: 3px solid var(--accent);
+  background: #eef4fb;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.selected-policy-summary {
+  padding: 12px;
+  margin: 10px 0 14px;
+}
+
+.intake-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.check-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.check-card input {
+  margin-top: 4px;
+}
+
+.workload-summary {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.workload-summary.workload-large {
+  border-color: #efd29d;
+  background: #fff7e9;
+  color: #79500a;
+}
+
+.workload-summary.workload-very_large {
+  border-color: #e6b6b1;
+  background: #fdf0ef;
+  color: var(--bad);
+}
+
+.intake-start {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.advanced-sources {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.advanced-sources > summary {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.secondary-button {
+  background: #f5f7fa;
+}
 .fields { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; margin: 10px 0; }
 .fields label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-soft); }
 .fields input, .fields select {
   font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
 }
-@media (max-width: 700px) { .fields { grid-template-columns: 1fr; } }
+@media (max-width: 700px) {
+  .fields,
+  .intake-grid { grid-template-columns: 1fr; }
+}
 
 
 .build-marker {
