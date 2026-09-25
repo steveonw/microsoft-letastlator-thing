@@ -215,7 +215,7 @@ class TrustUxCleanupTests(unittest.TestCase):
     def test_phase_seven_build_marker_is_visible(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         html = index_path.read_text(encoding="utf-8")
-        self.assertIn(">build 22<", html)
+        self.assertIn(">build 23<", html)
 
     def test_analysis_prompts_request_atomic_findings(self) -> None:
         policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
@@ -420,6 +420,73 @@ class MediaReviewSectionTests(unittest.TestCase):
         )
         opened = state.rush_open(media.id)
         self.assertEqual(opened.current_step_id, "step-related-media")
+
+    def test_reviewer_can_exclude_and_restore_media_without_a_model_call(self) -> None:
+        from datetime import datetime, timezone
+
+        from news_sources import NewsDiscovery
+
+        state = GuideState()
+        source = full_stack.Source(
+            id="source-google-news-selection",
+            title="Selectable article",
+            information_type=full_stack.InformationType.FACTUAL_REPORTING,
+            url="https://example.com/selectable",
+            agency="Example News",
+            raw_text="Selectable article",
+            pii_redaction_status=full_stack.PiiRedactionStatus.NOT_APPLICABLE,
+        )
+        state.news_discovery = NewsDiscovery(
+            query="selectable",
+            checked_at=datetime(2026, 9, 24, tzinfo=timezone.utc),
+            sources=[source],
+        )
+        rushed = state.reset("rush")
+        media = next(
+            step for step in rushed.steps
+            if step.kind == full_stack.StepKind.FACTUAL_REPORTING
+        )
+        claim_id = media.claims[0].id
+
+        excluded = state.set_news_article_use(claim_id, use=False)
+        media = next(step for step in excluded.steps if step.id == "step-related-media")
+        self.assertIn(claim_id, media.human_review.excluded_claim_ids)
+        self.assertIn("Articles selected for report: 0", state._news_brief_text())
+        self.assertIn("EXCLUDED BY REVIEWER", state._news_audit_text())
+
+        restored = state.set_news_article_use(claim_id, use=True)
+        media = next(step for step in restored.steps if step.id == "step-related-media")
+        self.assertNotIn(claim_id, media.human_review.excluded_claim_ids)
+        self.assertIn("Articles selected for report: 1", state._news_brief_text())
+
+    def test_media_selection_survives_rush_resync(self) -> None:
+        from datetime import datetime, timezone
+
+        from news_sources import NewsDiscovery
+
+        state = GuideState()
+        source = full_stack.Source(
+            id="source-google-news-persist",
+            title="Persistent article",
+            information_type=full_stack.InformationType.FACTUAL_REPORTING,
+            url="https://example.com/persist",
+            agency="Example News",
+            raw_text="Persistent article",
+            pii_redaction_status=full_stack.PiiRedactionStatus.NOT_APPLICABLE,
+        )
+        state.news_discovery = NewsDiscovery(
+            query="persist",
+            checked_at=datetime(2026, 9, 24, tzinfo=timezone.utc),
+            sources=[source],
+        )
+        first = state.reset("rush")
+        media = next(step for step in first.steps if step.kind == full_stack.StepKind.FACTUAL_REPORTING)
+        claim_id = media.claims[0].id
+        state.set_news_article_use(claim_id, use=False)
+
+        rerun = state.reset("rush")
+        media = next(step for step in rerun.steps if step.kind == full_stack.StepKind.FACTUAL_REPORTING)
+        self.assertIn(claim_id, media.human_review.excluded_claim_ids)
 
     def test_media_step_is_excluded_from_normal_claim_promotion(self) -> None:
         selective_path = full_stack.ROOT / "backend" / "selective_reanalysis.py"
@@ -984,24 +1051,19 @@ class HiddenVerificationRefreshRegressionTests(unittest.TestCase):
 
 
 class LiveSourceModeChoiceContractTests(unittest.TestCase):
-    def test_live_source_ui_keeps_mode_choice_visible_until_start(self) -> None:
+    def test_live_source_ui_exposes_rush_as_the_single_user_start_path(self) -> None:
         app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
+        index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         source = app_path.read_text(encoding="utf-8")
+        html = index_path.read_text(encoding="utf-8")
 
-        self.assertIn(
-            "Live policy loaded. Choose Guided or Rush",
-            source,
-        )
+        self.assertNotIn('id="start-guided"', html)
+        self.assertIn('id="start-rush"', html)
+        self.assertIn("Analyze everything, then review", html)
+        self.assertNotIn('byId("start-guided")', source)
+        self.assertIn('byId("mode-pill").textContent = "ready to analyze"', source)
         self.assertIn(
             "Live comments analyzed. Corpus limits are tracked for review.",
-            source,
-        )
-        self.assertIn(
-            'byId("mode-pill").textContent = "ready to choose"',
-            source,
-        )
-        self.assertNotIn(
-            "run = updated;\n    selectedStepId = null;\n    selectedClaimId = null;\n    render();",
             source,
         )
 
