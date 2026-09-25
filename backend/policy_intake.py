@@ -1,41 +1,30 @@
 from __future__ import annotations
 
-import json
 import re
-from datetime import date, datetime, timezone
-from typing import Any, Literal
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from datetime import datetime, timezone
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from federal_register import (
-    DEFAULT_USER_AGENT,
+    DEFAULT_SEARCH_TYPES,
+    DocketDetection,
     NormalizedPolicyDocument,
+    SearchCandidate,
+    detect_document_docket,
     fetch_and_normalize,
+    search_documents,
 )
 from models import ReportStandard
 from policy_status import FederalRegisterDocumentRef, PolicyStatusSnapshot
 
 
-FEDERAL_REGISTER_SEARCH_API = "https://www.federalregister.gov/api/v1/documents.json"
 MAX_SEARCH_RESULTS = 8
 PROJECT_SCHEMA_VERSION = 1
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-class PolicySearchResult(StrictModel):
-    document_number: str
-    title: str
-    document_type: str | None = None
-    action: str | None = None
-    publication_date: date | None = None
-    agency_names: list[str] = Field(default_factory=list)
-    regulation_id_numbers: list[str] = Field(default_factory=list)
-    html_url: str | None = None
 
 
 class RelatedDocumentSuggestion(StrictModel):
@@ -84,86 +73,29 @@ class PolicyTraceProject(StrictModel):
     excluded_media_claim_ids: list[str] = Field(default_factory=list)
 
 
-def _parse_date(value: Any) -> date | None:
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(str(value)[:10])
-    except ValueError:
-        return None
-
-
-def _agency_names(row: dict[str, Any]) -> list[str]:
-    names: list[str] = []
-    for agency in row.get("agencies") or []:
-        if isinstance(agency, dict) and agency.get("name"):
-            names.append(str(agency["name"]))
-    if not names:
-        for value in row.get("agency_names") or []:
-            if value:
-                names.append(str(value))
-    return names
-
-
-def _strings(value: Any) -> list[str]:
-    if not value:
-        return []
-    if isinstance(value, list):
-        return [str(item) for item in value if item]
-    return [str(value)]
-
-
 def search_federal_register(
     query: str,
     *,
     limit: int = MAX_SEARCH_RESULTS,
     timeout: int = 20,
-) -> list[PolicySearchResult]:
-    query = query.strip()
-    if not query:
-        raise ValueError("Enter a Federal Register search term")
-    if limit < 1 or limit > MAX_SEARCH_RESULTS:
-        raise ValueError(f"limit must be between 1 and {MAX_SEARCH_RESULTS}")
-
-    params = {
-        "per_page": limit,
-        "conditions[term]": query,
-    }
-    request = Request(
-        f"{FEDERAL_REGISTER_SEARCH_API}?{urlencode(params)}",
-        headers={
-            "User-Agent": DEFAULT_USER_AGENT,
-            "Accept": "application/json",
-        },
+    include_notices: bool = False,
+) -> list[SearchCandidate]:
+    document_types = list(DEFAULT_SEARCH_TYPES)
+    if include_notices:
+        document_types.append("NOTICE")
+    result = search_documents(
+        query,
+        document_types=document_types,
+        limit=limit,
+        timeout=timeout,
     )
-    with urlopen(request, timeout=timeout) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    return result.candidates
 
-    rows = payload.get("results")
-    if not isinstance(rows, list):
-        raise ValueError("Federal Register search returned no results list")
 
-    results: list[PolicySearchResult] = []
-    for row in rows[:limit]:
-        if not isinstance(row, dict):
-            continue
-        number = row.get("document_number")
-        title = row.get("title")
-        if not number or not title:
-            continue
-        results.append(
-            PolicySearchResult(
-                document_number=str(number),
-                title=str(title),
-                document_type=row.get("type"),
-                action=row.get("action"),
-                publication_date=_parse_date(row.get("publication_date")),
-                agency_names=_agency_names(row),
-                regulation_id_numbers=_strings(row.get("regulation_id_numbers")),
-                html_url=row.get("html_url"),
-            )
-        )
-    return results
+def intake_docket_detection(
+    document: NormalizedPolicyDocument,
+) -> DocketDetection:
+    return detect_document_docket(document)
 
 
 def _title_tokens(value: str) -> set[str]:
