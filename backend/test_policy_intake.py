@@ -118,6 +118,42 @@ class RelatedDocumentSuggestionTests(unittest.TestCase):
         self.assertIn("published later than selected document", suggestions[0].reasons)
 
 
+    def test_same_agency_without_title_overlap_is_not_suggested(self) -> None:
+        document = make_document(
+            "2025-19674",
+            title="American AI Exports Program",
+            publication_date=date(2025, 10, 28),
+        )
+        document.agency_names = ["Department of Commerce"]
+        status = PolicyStatusSnapshot(
+            available=False,
+            checked_at=datetime(2026, 9, 25, tzinfo=timezone.utc),
+            rin=None,
+            federal_register_documents=[],
+            status_label="Status check unavailable",
+            freshness_message="No RIN available.",
+        )
+        unrelated = SearchCandidate(
+            document_number="2026-01059",
+            title="Streamlining Export Controls for Drone Exports",
+            document_type="Rule",
+            publication_date=date(2026, 1, 21),
+            agency_names=["Department of Commerce"],
+            docket=DocketDetection(
+                status="none",
+                note="No Regulations.gov comment docket was detected.",
+            ),
+        )
+
+        with patch(
+            "policy_intake.search_federal_register",
+            return_value=[unrelated],
+        ):
+            suggestions = related_document_suggestions(document, status)
+
+        self.assertEqual(suggestions, [])
+
+
 class ComparisonWorkloadTests(unittest.TestCase):
     def test_large_comparison_requires_one_confirmation(self) -> None:
         primary = make_document("2024-10001", text_size=1000)
