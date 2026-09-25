@@ -58,6 +58,8 @@ class IntakePlan(StrictModel):
     include_comparison: bool = False
     docket_id: str = ""
     max_comments: int = Field(default=12, ge=1, le=100)
+    comment_sampling_method: Literal["earliest", "random"] = "earliest"
+    comment_sampling_seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
     news_query: str = ""
     max_articles: int = Field(default=8, ge=1, le=25)
     comparison_document_number: str = ""
