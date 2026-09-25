@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
 import unittest
 from datetime import date, datetime, timezone
 from unittest.mock import patch
 
-from federal_register import normalize_document
+from federal_register import DocketDetection, SearchCandidate, normalize_document
 from policy_intake import (
     IntakePlan,
     PolicyTraceProject,
@@ -33,61 +32,56 @@ def make_document(
             "type": "Proposed Rule",
             "publication_date": publication_date.isoformat(),
             "agency_names": ["Example Agency"],
-            "docket_ids": ["EXAMPLE-2024-0001"],
+            "docket_ids": ["Docket No. EXAMPLE-2024-0001"],
             "regulation_id_numbers": ["1234-AA01"],
+            "regulations_dot_gov_info": {
+                "docket_id": "EXAMPLE-2024-0001",
+            },
             "html_url": f"https://www.federalregister.gov/d/{number}",
         },
         raw_text,
     )
 
 
-class _Response:
-    def __init__(self, payload: dict):
-        self.payload = payload
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def read(self) -> bytes:
-        return json.dumps(self.payload).encode("utf-8")
-
-
 class PolicyIntakeSearchTests(unittest.TestCase):
-    def test_search_returns_bounded_metadata_results(self) -> None:
-        payload = {
-            "results": [
-                {
-                    "document_number": "2024-10001",
-                    "title": "AI Reporting Proposal",
-                    "type": "Proposed Rule",
-                    "publication_date": "2024-01-02",
-                    "agencies": [{"name": "Example Agency"}],
-                    "html_url": "https://www.federalregister.gov/d/2024-10001",
-                },
-                {
-                    "document_number": "2024-10002",
-                    "title": "AI Reporting Final Rule",
-                    "type": "Rule",
-                    "publication_date": "2024-12-02",
-                    "agencies": [{"name": "Example Agency"}],
-                },
-            ]
-        }
+    def test_search_defaults_to_rule_types(self) -> None:
+        candidate = SearchCandidate(
+            document_number="2024-10001",
+            title="AI Reporting Proposal",
+            document_type="Proposed Rule",
+            publication_date=date(2024, 1, 2),
+            agency_names=["Example Agency"],
+            docket=DocketDetection(
+                status="none",
+                note="No Regulations.gov comment docket was detected.",
+            ),
+        )
 
-        with patch("policy_intake.urlopen", return_value=_Response(payload)) as opened:
+        with patch("policy_intake.search_documents") as search:
+            search.return_value.candidates = [candidate]
             results = search_federal_register("AI reporting", limit=2)
 
-        self.assertEqual([item.document_number for item in results], ["2024-10001", "2024-10002"])
-        self.assertEqual(results[0].agency_names, ["Example Agency"])
-        request = opened.call_args.args[0]
-        self.assertIn("conditions%5Bterm%5D=AI+reporting", request.full_url)
-        self.assertIn("per_page=2", request.full_url)
+        self.assertEqual([item.document_number for item in results], ["2024-10001"])
+        _, kwargs = search.call_args
+        self.assertEqual(kwargs["document_types"], ["RULE", "PRORULE"])
+        self.assertEqual(kwargs["limit"], 2)
+
+    def test_search_can_widen_to_notices(self) -> None:
+        with patch("policy_intake.search_documents") as search:
+            search.return_value.candidates = []
+            search_federal_register(
+                "AI reporting",
+                include_notices=True,
+            )
+
+        _, kwargs = search.call_args
+        self.assertEqual(
+            kwargs["document_types"],
+            ["RULE", "PRORULE", "NOTICE"],
+        )
 
     def test_empty_search_is_rejected(self) -> None:
-        with self.assertRaisesRegex(ValueError, "search term"):
+        with self.assertRaisesRegex(ValueError, "document number or search words"):
             search_federal_register("   ")
 
 
@@ -159,6 +153,7 @@ class ProjectFileTests(unittest.TestCase):
         project = PolicyTraceProject(
             saved_at=datetime(2026, 9, 25, tzinfo=timezone.utc),
             search_query="AI reporting",
+            include_notices=True,
             primary_document_number="2024-10001",
             intake_plan=IntakePlan(
                 docket_id="EXAMPLE-2024-0001",
@@ -174,6 +169,7 @@ class ProjectFileTests(unittest.TestCase):
         validated = validate_project(project.model_dump(mode="json"))
 
         self.assertEqual(validated.policytrace_project_schema, 1)
+        self.assertTrue(validated.include_notices)
         self.assertTrue(validated.intake_plan.include_comparison)
         self.assertEqual(validated.intake_plan.report_standard.value, "balanced")
         self.assertEqual(validated.excluded_media_claim_ids, ["claim-news-demo"])
