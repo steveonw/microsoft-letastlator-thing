@@ -12,6 +12,7 @@ from models import (
     InformationType,
     PiiRedactionStatus,
     Policy,
+    ReportStandard,
     Source,
     StepKind,
     StepStatus,
@@ -407,6 +408,49 @@ class SelectiveReanalysisTests(unittest.TestCase):
 
         self.assertIn("[claim-one]", brief.ai_output)
         self.assertIn("[claim-four]", brief.ai_output)
+
+
+
+class ReportStandardTests(unittest.TestCase):
+    def test_strict_withholds_partially_supported_findings(self) -> None:
+        analysis = demo_analysis()
+        claim = analysis.steps[1].claims[0]
+        claim.verification_status = VerificationStatus.PARTIALLY_SUPPORTED
+        claim.verification_note = "Only part of this finding is established."
+        analysis.report_standard = ReportStandard.STRICT
+
+        briefed = build_final_brief(analysis)
+        brief = next(step for step in briefed.steps if step.kind == StepKind.DRAFT_BRIEF)
+
+        self.assertIn("Report standard: strict", brief.ai_output)
+        self.assertNotIn("Covered providers are identified.", brief.ai_output)
+
+    def test_balanced_keeps_partially_supported_findings_labeled(self) -> None:
+        analysis = demo_analysis()
+        claim = analysis.steps[1].claims[0]
+        claim.verification_status = VerificationStatus.PARTIALLY_SUPPORTED
+        claim.verification_note = "Only part of this finding is established."
+        analysis.report_standard = ReportStandard.BALANCED
+
+        briefed = build_final_brief(analysis)
+        brief = next(step for step in briefed.steps if step.kind == StepKind.DRAFT_BRIEF)
+
+        self.assertIn("Covered providers are identified.", brief.ai_output)
+        self.assertIn("(partially supported)", brief.ai_output)
+
+    def test_exploratory_surfaces_unresolved_evidence_separately(self) -> None:
+        analysis = demo_analysis()
+        claim = analysis.steps[1].claims[0]
+        claim.verification_status = VerificationStatus.NEEDS_HUMAN_REVIEW
+        claim.verification_note = "Evidence exists but semantic support is unresolved."
+        analysis.report_standard = ReportStandard.EXPLORATORY
+
+        briefed = build_final_brief(analysis)
+        brief = next(step for step in briefed.steps if step.kind == StepKind.DRAFT_BRIEF)
+
+        self.assertIn("## Exploratory reviewed findings", brief.ai_output)
+        self.assertIn("[needs_human_review]", brief.ai_output)
+        self.assertIn("not established findings", brief.ai_output)
 
 
 if __name__ == "__main__":
