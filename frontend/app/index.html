@@ -90,9 +90,9 @@
         <div class="field-group">
           <h3>2. Find or enter a Federal Register document</h3>
           <div class="fields">
-            <label>Search by title, topic, agency, RIN, or words
+            <label>Search Federal Register rules and proposed rules by keyword
               <input id="policy-search-query" type="text"
-                     placeholder="e.g. H-1B modernization or advanced AI reporting" />
+                     placeholder="e.g. AI diffusion, Commerce Department, or 0694-AJ90" />
             </label>
             <label>Or enter a document number
               <input id="intake-doc-number" type="text" placeholder="2024-20529" />
@@ -109,8 +109,8 @@
             </button>
           </div>
           <p class="muted small">
-            Search uses FederalRegister.gov metadata. AI topic previews are optional
-            and use only a bounded excerpt from the official document.
+            Search uses FederalRegister.gov keyword relevance. Agency names and RINs are treated as search terms.
+            AI topic previews are optional and use only a bounded excerpt from the official document.
           </p>
           <div id="policy-search-results" class="intake-results"></div>
         </div>
