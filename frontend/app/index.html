@@ -98,6 +98,10 @@
               <input id="intake-doc-number" type="text" placeholder="2024-20529" />
             </label>
           </div>
+          <label class="inline-check">
+            <input id="include-notices-search" type="checkbox" />
+            Include Federal Register notices in search results
+          </label>
           <div class="button-row">
             <button id="search-policies" type="button">Search Federal Register</button>
             <button id="select-doc-number" type="button" class="secondary-button">
@@ -143,10 +147,11 @@
           </div>
 
           <div class="fields">
-            <label>Detected Regulations.gov docket
+            <label>Regulations.gov docket
               <select id="detected-docket" hidden></select>
               <input id="intake-docket-id" type="text"
-                     placeholder="auto-detected when available" />
+                     placeholder="auto-detected only when explicitly linked" />
+              <span id="docket-detection-note" class="muted small"></span>
             </label>
             <label>Comments to analyze
               <input id="intake-max-comments" type="number" min="1" max="100" value="12" />
@@ -236,7 +241,7 @@
           <h3>3. Public comments</h3>
           <div class="fields">
             <label>Regulations.gov docket
-              <input id="docket-id" type="text" placeholder="BIS-2024-0047" value="BIS-2024-0047" />
+              <input id="docket-id" type="text" placeholder="BIS-2024-0047" />
             </label>
             <label>How many comments
               <input id="max-comments" type="number" min="1" max="100" value="12" />
