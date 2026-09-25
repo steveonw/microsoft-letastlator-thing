@@ -1066,6 +1066,7 @@ class PolicyIntakeUiContractTests(unittest.TestCase):
         self.assertIn('id="report-standard"', html)
         self.assertIn('id="save-project"', html)
         self.assertIn('id="load-project"', html)
+        self.assertIn('id="save-project-final"', html)
         self.assertIn('id="start-rush"', html)
 
         self.assertIn('api("/api/intake/search"', source)
@@ -1073,6 +1074,7 @@ class PolicyIntakeUiContractTests(unittest.TestCase):
         self.assertIn('api("/api/intake/workload"', source)
         self.assertIn('api("/api/intake/run"', source)
         self.assertIn("policytrace_project_schema: 1", source)
+        self.assertIn('byId("save-project-final").addEventListener', source)
 
     def test_large_comparison_has_two_level_guardrail(self) -> None:
         app_path = full_stack.ROOT / "frontend" / "app" / "app.js"
