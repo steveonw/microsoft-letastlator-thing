@@ -728,8 +728,22 @@ function renderCorpusStatus() {
     .map(([key, value]) => `${say(key)}: ${value}`)
     .join(" · ");
 
+  const sampling =
+    corpusStatus.sampling_method === "random"
+      ? `Sampling: random ${corpusStatus.retrieved_count || 0}/${corpusStatus.population_count ?? "?"} · seed ${corpusStatus.sampling_seed ?? "?"}`
+      : corpusStatus.sampling_method
+        ? "Sampling: earliest available"
+        : "";
+  const positions =
+    corpusStatus.sampling_method === "random" &&
+    (corpusStatus.selected_positions || []).length
+      ? `Positions: ${corpusStatus.selected_positions.join(", ")}`
+      : "";
+
   const details = [
     corpusStatus.docket_id ? `Docket: ${corpusStatus.docket_id}` : "",
+    sampling,
+    positions,
     `Unusable retrieved: ${corpusStatus.unusable_retrieval_count || 0}`,
     `PII-pattern redactions: ${corpusStatus.pii_redacted_count || 0}`,
     `Degraded source records: ${corpusStatus.degraded_source_count || 0}`,
@@ -1716,7 +1730,25 @@ async function checkComparisonWorkload() {
   return data;
 }
 
+function ensureCommentSamplingSeed() {
+  const method = byId("comment-sampling-method").value;
+  const input = byId("comment-sampling-seed");
+  if (method !== "random") return null;
+
+  const current = Number(input.value);
+  if (Number.isSafeInteger(current) && current >= 0 && input.value !== "") {
+    return current;
+  }
+
+  const values = new Uint32Array(1);
+  window.crypto.getRandomValues(values);
+  const seed = Number(values[0]);
+  input.value = String(seed);
+  return seed;
+}
+
 function intakePlanFromForm() {
+  const samplingMethod = byId("comment-sampling-method").value;
   return {
     include_current_status: byId("include-status").checked,
     include_comments: byId("include-comments").checked,
@@ -1724,6 +1756,9 @@ function intakePlanFromForm() {
     include_comparison: byId("include-comparison").checked,
     docket_id: byId("intake-docket-id").value.trim(),
     max_comments: Number(byId("intake-max-comments").value) || 12,
+    comment_sampling_method: samplingMethod,
+    comment_sampling_seed:
+      samplingMethod === "random" ? ensureCommentSamplingSeed() : null,
     news_query: byId("intake-news-query").value.trim(),
     max_articles: Number(byId("intake-max-news").value) || 8,
     comparison_document_number: byId("intake-comparison-doc").value.trim(),
@@ -1856,6 +1891,10 @@ async function applyLoadedProject(project) {
   byId("include-comparison").checked = Boolean(plan.include_comparison);
   byId("intake-docket-id").value = plan.docket_id || "";
   byId("intake-max-comments").value = plan.max_comments || 12;
+  byId("comment-sampling-method").value =
+    plan.comment_sampling_method || "earliest";
+  byId("comment-sampling-seed").value =
+    plan.comment_sampling_seed ?? "";
   byId("intake-news-query").value = plan.news_query || "";
   byId("intake-max-news").value = plan.max_articles || 8;
   byId("intake-comparison-doc").value =
