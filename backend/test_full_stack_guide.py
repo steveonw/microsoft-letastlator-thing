@@ -3,10 +3,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from models import HumanReviewStatus, InformationType, StepStatus
+from federal_register import normalize_document
+from models import AnalysisMode, AnalysisRun, HumanReviewStatus, InformationType, StepStatus
 from response_sources import CommentFetchReport, CommentFetchResult, ResponseRecord
 from policy_status import unavailable_policy_status
-from run_full_stack_guide import GuideState, make_rush_inputs
+from run_full_stack_guide import GuideState, make_guided_demo, make_rush_inputs
 
 
 class FullStackGuideTests(unittest.TestCase):
@@ -172,6 +173,99 @@ class FullStackGuideTests(unittest.TestCase):
         self.assertIn("policy_understanding", kinds)
         self.assertIn("public_response", kinds)
         self.assertNotIn("regulations-secret", loaded.model_dump_json())
+
+    def test_status_without_rin_is_a_nonfatal_status_note(self) -> None:
+        state = GuideState()
+        state.document = normalize_document(
+            {
+                "document_number": "2025-00001",
+                "title": "Example notice without RIN",
+                "type": "Notice",
+                "publication_date": "2025-01-02",
+            },
+            "SUMMARY: Example official source text.",
+        )
+        state.policy_status = unavailable_policy_status(
+            "Federal Register metadata did not provide a Regulation Identifier Number (RIN)."
+        )
+
+        payload = state.policy_status_payload()
+
+        self.assertFalse(payload["available"])
+        self.assertNotIn("error", payload)
+        self.assertIn("status_error", payload)
+        self.assertIn(
+            "Regulation Identifier Number",
+            payload["status_error"],
+        )
+
+    def test_intake_comment_failure_does_not_abort_policy_analysis(self) -> None:
+        state = GuideState()
+        state.provider.kind = "openrouter"
+        state.provider.api_key = "fake-model-key"
+        state.provider.model = "openrouter/free"
+        state.document = normalize_document(
+            {
+                "document_number": "2025-00001",
+                "title": "Example patent notice",
+                "type": "Notice",
+                "publication_date": "2025-01-02",
+                "docket_ids": ["Docket No. PTO-P-2025-0014"],
+            },
+            "SUMMARY: Example official source text.",
+        )
+
+        policy_run = make_guided_demo()
+        policy_run.policy.version = state.document.document_number
+        policy_run.policy.title = state.document.title
+
+        with (
+            patch(
+                "run_full_stack_guide.run_policy_interpreter",
+                return_value=policy_run,
+            ),
+            patch.object(
+                state,
+                "load_comments",
+                side_effect=RuntimeError(
+                    "no Regulations.gov document object IDs found"
+                ),
+            ),
+            patch.object(
+                state,
+                "run_rush",
+                side_effect=lambda: AnalysisRun.model_validate(
+                    state.analysis.model_dump(mode="python")
+                ),
+            ),
+        ):
+            result = state.run_intake(
+                {
+                    "plan": {
+                        "include_current_status": False,
+                        "include_comments": True,
+                        "include_news": False,
+                        "include_comparison": False,
+                        "docket_id": "PTO-P-2025-0014",
+                        "max_comments": 12,
+                        "news_query": "",
+                        "max_articles": 8,
+                        "comparison_document_number": "",
+                        "report_standard": "balanced",
+                    }
+                }
+            )
+
+        self.assertEqual(result.policy.title, state.document.title)
+        self.assertEqual(len(state.intake_warnings), 1)
+        self.assertIn(
+            "Policy analysis continued without those comments",
+            state.intake_warnings[0],
+        )
+        self.assertIn(
+            "Source acquisition limits",
+            state._intake_limits_brief_text(),
+        )
 
     def test_live_source_requires_real_model_provider(self) -> None:
         state = GuideState()
