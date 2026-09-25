@@ -408,6 +408,11 @@ class SelectiveReanalysisTests(unittest.TestCase):
 
         self.assertIn("[claim-one]", brief.ai_output)
         self.assertIn("[claim-four]", brief.ai_output)
+        self.assertIn(
+            "not individually reviewed",
+            brief.ai_output,
+        )
+        self.assertNotIn("contains only reviewed findings", brief.ai_output)
 
 
 
