@@ -194,6 +194,8 @@ class ProjectFileTests(unittest.TestCase):
             intake_plan=IntakePlan(
                 docket_id="EXAMPLE-2024-0001",
                 max_comments=12,
+                comment_sampling_method="random",
+                comment_sampling_seed=48213,
                 max_articles=8,
                 comparison_document_number="2025-20002",
                 include_comparison=True,
@@ -208,7 +210,31 @@ class ProjectFileTests(unittest.TestCase):
         self.assertTrue(validated.include_notices)
         self.assertTrue(validated.intake_plan.include_comparison)
         self.assertEqual(validated.intake_plan.report_standard.value, "balanced")
+        self.assertEqual(validated.intake_plan.comment_sampling_method, "random")
+        self.assertEqual(validated.intake_plan.comment_sampling_seed, 48213)
         self.assertEqual(validated.excluded_media_claim_ids, ["claim-news-demo"])
+
+    def test_legacy_project_without_sampling_fields_keeps_earliest_behavior(self) -> None:
+        value = {
+            "policytrace_project_schema": 1,
+            "saved_at": "2026-09-25T00:00:00Z",
+            "search_query": "AI",
+            "include_notices": False,
+            "primary_document_number": "2024-10001",
+            "intake_plan": {
+                "docket_id": "EXAMPLE-2024-0001",
+                "max_comments": 12,
+            },
+            "excluded_media_claim_ids": [],
+        }
+
+        validated = validate_project(value)
+
+        self.assertEqual(
+            validated.intake_plan.comment_sampling_method,
+            "earliest",
+        )
+        self.assertIsNone(validated.intake_plan.comment_sampling_seed)
 
     def test_project_schema_rejects_embedded_credentials(self) -> None:
         value = {
