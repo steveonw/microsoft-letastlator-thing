@@ -467,7 +467,7 @@ class ResponseSourceTests(unittest.TestCase):
                 }
             if path == "/comments":
                 object_id = params["filter[commentOnId]"]
-                if params.get("page[size]") == 1:
+                if params.get("page[size]") == 5:
                     return {
                         "data": [{"id": f"{object_id}-COUNT"}],
                         "meta": {
@@ -526,13 +526,60 @@ class ResponseSourceTests(unittest.TestCase):
         self.assertEqual(first.report.sampling_seed, 48213)
         self.assertTrue(first.report.page_requests)
 
+    def test_all_regulations_gov_requests_use_valid_page_sizes(self) -> None:
+        # Regulations.gov v4 rejects page[size] outside 5..250 with HTTP 400.
+        # Offline fakes accept anything, so enforce the live limit here.
+        requested_sizes: list[int] = []
+
+        def strict_get_json(path, *, api_key, params=None, timeout=30):
+            del api_key, timeout
+            params = params or {}
+            size = params.get("page[size]")
+            if size is not None:
+                requested_sizes.append(size)
+                if not 5 <= size <= 250:
+                    raise AssertionError(
+                        f"{path} page[size]={size}; Regulations.gov requires 5..250"
+                    )
+            if path == "/documents":
+                return {"data": [{"attributes": {"objectId": "OBJ-A"}}]}
+            if path == "/comments":
+                return {
+                    "data": [{"id": f"OBJ-A-COMMENT-{i}"} for i in range(1, 9)],
+                    "meta": {"totalElements": 8},
+                }
+            raise AssertionError(f"unexpected path {path}")
+
+        def fake_fetch(comment_id, *, api_key, timeout):
+            del api_key, timeout
+            return ResponseRecord(
+                id=comment_id,
+                title=comment_id,
+                text=f"Text for {comment_id}.",
+                information_type=InformationType.PUBLIC_OPINION,
+            )
+
+        for method in ("earliest", "random"):
+            with (
+                patch("response_sources._get_json", side_effect=strict_get_json),
+                patch("response_sources._fetch_comment_record", side_effect=fake_fetch),
+            ):
+                fetch_comments_for_docket_with_report(
+                    "DEMO-DOCKET",
+                    api_key="test-key",
+                    max_comments=3,
+                    sampling_method=method,
+                    sampling_seed=7,
+                )
+        self.assertTrue(requested_sizes)
+
     def test_random_comment_sampling_changes_with_seed(self) -> None:
         def fake_get_json(path, *, api_key, params=None, timeout=30):
             del api_key, timeout
             params = params or {}
             if path == "/documents":
                 return {"data": [{"attributes": {"objectId": "OBJ-1"}}]}
-            if path == "/comments" and params.get("page[size]") == 1:
+            if path == "/comments" and params.get("page[size]") == 5:
                 return {
                     "data": [{"id": "COUNT"}],
                     "meta": {"totalElements": 30},
@@ -581,7 +628,7 @@ class ResponseSourceTests(unittest.TestCase):
             params = params or {}
             if path == "/documents":
                 return {"data": [{"attributes": {"objectId": "OBJ-1"}}]}
-            if path == "/comments" and params.get("page[size]") == 1:
+            if path == "/comments" and params.get("page[size]") == 5:
                 return {
                     "data": [{"id": "COUNT"}],
                     "meta": {"totalElements": 20},
