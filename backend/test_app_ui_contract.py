@@ -284,7 +284,7 @@ class NewsReportOrderingTests(unittest.TestCase):
             brief_block.index("self._news_brief_text()"),
         )
         self.assertLess(
-            audit_block.index("self._corpus_brief_text()"),
+            audit_block.index("self._corpus_audit_text()"),
             audit_block.index("self._news_audit_text()"),
         )
 
