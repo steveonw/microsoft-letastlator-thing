@@ -354,16 +354,33 @@ def _leadership_report_text(
     analysis: AnalysisRun,
     steps: list[AnalysisStep],
 ) -> str:
+    unreviewed_step_ids = [
+        step.id
+        for step in steps
+        if step.human_review.status
+        not in {HumanReviewStatus.REVIEWED, HumanReviewStatus.APPROVED}
+    ]
+    if unreviewed_step_ids:
+        review_disclosure = (
+            "This report includes findings from one or more sections that were "
+            "not individually reviewed and were admitted only through an explicit "
+            "final human-approval override. Every included finding still has cited "
+            "evidence and passed the report-promotion gate. See the Evidence Audit "
+            "Log for section review state and override notes."
+        )
+    else:
+        review_disclosure = (
+            "This report contains only reviewed findings that have cited evidence "
+            "and passed the report-promotion gate. Stable claim IDs in brackets "
+            "link each finding to the Evidence Audit Log."
+        )
+
     lines = [
         "PolicyTrace Leadership Report",
         f"Policy: {analysis.policy.title}",
         f"Report standard: {analysis.report_standard.value}",
         "",
-        (
-            "This report contains only reviewed findings that have cited evidence "
-            "and passed the report-promotion gate. Stable claim IDs in brackets "
-            "link each finding to the Evidence Audit Log."
-        ),
+        review_disclosure,
     ]
 
     withheld = 0
@@ -378,7 +395,7 @@ def _leadership_report_text(
         lines.extend(["", f"## {step.title}"])
         if not promoted:
             lines.append(
-                "- No reviewed findings from this section met report-promotion criteria."
+                "- No findings from this section met report-promotion criteria."
             )
             continue
 
@@ -390,7 +407,7 @@ def _leadership_report_text(
             "",
             "## Review limitations",
             (
-                f"- {withheld} reviewed finding(s) were withheld from normal leadership "
+                f"- {withheld} finding(s) were withheld from normal leadership "
                 "report promotion because an evidence, verification, report-standard, "
                 "or reviewer-flag gate remains unresolved. See the Evidence Audit Log "
                 "for the full record."
