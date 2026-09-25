@@ -215,7 +215,7 @@ class TrustUxCleanupTests(unittest.TestCase):
     def test_phase_seven_build_marker_is_visible(self) -> None:
         index_path = full_stack.ROOT / "frontend" / "app" / "index.html"
         html = index_path.read_text(encoding="utf-8")
-        self.assertIn(">build 25<", html)
+        self.assertIn(">build 26<", html)
 
     def test_analysis_prompts_request_atomic_findings(self) -> None:
         policy_path = full_stack.ROOT / "backend" / "policy_interpreter.py"
