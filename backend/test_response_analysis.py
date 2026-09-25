@@ -1,7 +1,9 @@
 import unittest
 import warnings
 from datetime import date, datetime, timezone
+from io import BytesIO
 from unittest.mock import patch
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from federal_register import NormalizedChunk, NormalizedPolicyDocument
 from models import InformationType, PiiRedactionStatus, StepKind, VerificationStatus
@@ -1054,6 +1056,15 @@ class ExtractionQualityTests(unittest.TestCase):
     Ligatures are repairable. Lost spacing is not, so it has to be visible
     rather than silently feeding unusable text to redaction and citation.
     """
+
+    def test_docx_expansion_is_bounded_before_xml_parse(self) -> None:
+        payload = BytesIO()
+        with ZipFile(payload, "w", compression=ZIP_DEFLATED) as archive:
+            archive.writestr("word/document.xml", b"x" * 1000)
+
+        with patch("response_sources.MAX_ATTACHMENT_BYTES", 100):
+            with self.assertRaisesRegex(ValueError, "decompression safety limit"):
+                _extract_attachment_payload(payload.getvalue(), "docx")
 
     def test_ligatures_are_normalized(self) -> None:
         payload = "the term is de\ufb01ned and e\ufb00ective".encode()
