@@ -50,6 +50,7 @@ from policy_intake import (
     PolicyTraceProject,
     bounded_preview_excerpt,
     estimate_comparison_workload,
+    intake_docket_detection,
     related_document_suggestions,
     search_federal_register,
     validate_project,
@@ -510,6 +511,7 @@ class GuideState:
         self.intake_plan = IntakePlan()
         self.intake_search_query = ""
         self.related_documents = []
+        self.intake_warnings: list[str] = []
         self._intake_document_cache: dict[str, NormalizedPolicyDocument] = {}
 
     def _sync_news_review_step(self, analysis: AnalysisRun) -> AnalysisRun:
@@ -640,11 +642,20 @@ class GuideState:
         self.analysis = self._guided_loaded_analysis()
         return self.analysis
 
-    def search_policies(self, query: str) -> dict[str, Any]:
+    def search_policies(
+        self,
+        query: str,
+        *,
+        include_notices: bool = False,
+    ) -> dict[str, Any]:
         self.intake_search_query = query.strip()
-        results = search_federal_register(self.intake_search_query)
+        results = search_federal_register(
+            self.intake_search_query,
+            include_notices=include_notices,
+        )
         return {
             "query": self.intake_search_query,
+            "include_notices": include_notices,
             "results": [item.model_dump(mode="json") for item in results],
         }
 
@@ -672,6 +683,7 @@ class GuideState:
         self.revision_comparison = None
         self.news_discovery = None
         self.intake_plan = IntakePlan()
+        self.intake_warnings = []
         self.related_documents = related_document_suggestions(document, status)
         self.analysis = AnalysisRun(
             id=f"intake-{document.document_number}",
@@ -716,6 +728,9 @@ class GuideState:
                     else None
                 ),
                 "docket_ids": document.docket_ids,
+                "docket_detection": intake_docket_detection(
+                    document
+                ).model_dump(mode="json"),
                 "regulation_id_numbers": document.regulation_id_numbers,
                 "citation": document.citation,
                 "html_url": document.html_url,
@@ -727,6 +742,7 @@ class GuideState:
                 for item in self.related_documents
             ],
             "plan": self.intake_plan.model_dump(mode="json"),
+            "warnings": list(self.intake_warnings),
         }
 
     def preview_policy(self, document_number: str) -> dict[str, Any]:
@@ -802,6 +818,7 @@ Return JSON only: {"summary":"..."}.
             if str(value).strip()
         ]
         self.intake_plan = plan
+        self.intake_warnings = []
 
         policy_analysis = run_policy_interpreter(
             self.document,
@@ -822,19 +839,35 @@ Return JSON only: {"summary":"..."}.
 
         if plan.include_comments:
             if not plan.docket_id.strip():
-                raise ValueError(
-                    "Public comments are selected but no Regulations.gov docket is set"
+                self.intake_warnings.append(
+                    "Public comments were selected, but no verified "
+                    "Regulations.gov docket was provided. Comments were skipped."
                 )
-            self.load_comments(
-                plan.docket_id,
-                max_comments=plan.max_comments,
-            )
+            else:
+                try:
+                    self.load_comments(
+                        plan.docket_id,
+                        max_comments=plan.max_comments,
+                    )
+                except Exception as exc:
+                    self.intake_warnings.append(
+                        "Public comments could not be loaded from "
+                        f"{plan.docket_id}: {type(exc).__name__}: {exc}. "
+                        "Policy analysis continued without those comments."
+                    )
 
         if plan.include_news:
-            self.discover_news(
-                query=plan.news_query,
-                max_articles=plan.max_articles,
-            )
+            try:
+                self.discover_news(
+                    query=plan.news_query,
+                    max_articles=plan.max_articles,
+                )
+            except Exception as exc:
+                self.intake_warnings.append(
+                    "Related media discovery failed: "
+                    f"{type(exc).__name__}: {exc}. "
+                    "Policy analysis continued without media pointers."
+                )
             media_step = next(
                 (
                     step
@@ -853,10 +886,20 @@ Return JSON only: {"summary":"..."}.
 
         if plan.include_comparison:
             if not plan.comparison_document_number.strip():
-                raise ValueError(
-                    "Revision comparison is selected but no comparison document is set"
+                self.intake_warnings.append(
+                    "Revision comparison was selected without a comparison "
+                    "document, so comparison was skipped."
                 )
-            self.compare_revision(plan.comparison_document_number)
+            else:
+                try:
+                    self.compare_revision(plan.comparison_document_number)
+                except Exception as exc:
+                    self.intake_warnings.append(
+                        "Revision comparison could not be completed for "
+                        f"{plan.comparison_document_number}: "
+                        f"{type(exc).__name__}: {exc}. "
+                        "Policy analysis continued without the comparison."
+                    )
 
         rushed = self.run_rush()
         rushed.report_standard = plan.report_standard
@@ -1284,8 +1327,22 @@ Return JSON only: {"summary":"..."}.
                 if status is None
                 else status.freshness_message
             ),
-            "error": None if status is None else status.error,
+            "status_error": None if status is None else status.error,
         }
+
+    def _intake_limits_brief_text(self) -> str | None:
+        if not self.intake_warnings:
+            return None
+        lines = [
+            "## Source acquisition limits",
+            (
+                "- One or more optional sources selected during intake could "
+                "not be loaded. PolicyTrace continued with the sources that "
+                "were available."
+            ),
+        ]
+        lines.extend(f"- {warning}" for warning in self.intake_warnings)
+        return "\n".join(lines)
 
     def _policy_status_brief_text(self) -> str | None:
         if not self.intake_plan.include_current_status:
@@ -1626,6 +1683,7 @@ Return JSON only: {"summary":"..."}.
                 self._revision_brief_text(),
                 self._corpus_brief_text(),
                 self._news_brief_text(),
+                self._intake_limits_brief_text(),
             )
             if value
         ]
@@ -1649,6 +1707,7 @@ Return JSON only: {"summary":"..."}.
                 self._revision_audit_text(),
                 self._corpus_brief_text(),
                 self._news_audit_text(),
+                self._intake_limits_brief_text(),
             )
             if value
         ]
@@ -1957,7 +2016,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if self.path == "/api/intake/search":
-                result = STATE.search_policies(str(body.get("query", "")))
+                result = STATE.search_policies(
+                    str(body.get("query", "")),
+                    include_notices=bool(body.get("include_notices", False)),
+                )
             elif self.path == "/api/intake/select":
                 result = STATE.select_policy(
                     str(body.get("document_number", ""))
