@@ -84,6 +84,7 @@ def combine_analysis_runs(
         steps=[*policy_steps, *response_steps],
         current_step_id=None,
         final_review_status=HumanReviewStatus.NOT_REVIEWED,
+        report_standard=policy.report_standard,
     )
     return _validated_copy(combined)
 
