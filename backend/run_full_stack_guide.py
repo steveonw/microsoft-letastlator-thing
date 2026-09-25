@@ -2080,9 +2080,20 @@ class Handler(BaseHTTPRequestHandler):
                     max_comments = int(body.get("max_comments", 12))
                 except (TypeError, ValueError) as exc:
                     raise ValueError("max_comments must be an integer") from exc
+                sampling_seed_value = body.get("sampling_seed")
+                try:
+                    sampling_seed = (
+                        None
+                        if sampling_seed_value in {None, ""}
+                        else int(sampling_seed_value)
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("sampling_seed must be an integer") from exc
                 result = STATE.load_comments(
                     str(body.get("docket_id", "")),
                     max_comments=max_comments,
+                    sampling_method=str(body.get("sampling_method", "earliest")),
+                    sampling_seed=sampling_seed,
                 )
             elif self.path == "/api/reset":
                 result = STATE.reset(str(body.get("mode", "guided")))
