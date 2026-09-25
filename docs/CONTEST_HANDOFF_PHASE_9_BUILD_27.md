@@ -85,6 +85,85 @@ New regression coverage verifies:
 
 At build 27 checkpoint, the full CI suite passes.
 
+
+## Live random-sampling acceptance
+
+A full live acceptance run was completed with:
+
+- Federal Register document `2025-19674` — American AI Exports Program;
+- Regulations.gov docket `ITA-2025-0070`;
+- random comment sampling;
+- 12 requested comments;
+- Balanced report standard;
+- current-status and related-media context enabled;
+- revision comparison disabled.
+
+The live corpus result showed:
+
+- population count: 227 submitted comments;
+- sampling seed: 0;
+- initial logical positions: `217, 99, 195, 108, 11, 67, 131, 125, 104, 201, 213, 78`;
+- 12 retrieved;
+- 12 analyzed;
+- 12 exact-text clusters;
+- 0 retrieval failures;
+- 0 unusable retrieved records;
+- 7 source records with supported PII-pattern redactions;
+- 0 degraded source records;
+- 0 degraded attachments;
+- no replacement positions were needed.
+
+The Evidence Audit Log recorded both Regulations.gov source object IDs, the exact sampled positions, all selected comment IDs, the list pages fetched, and the reproducibility limitation.
+
+The Leadership Report disclosed:
+
+> 12 of 227 submitted comments selected by reproducible random sampling (seed 0).
+
+The representativeness warning remained visible:
+
+> These materials are not a representative sample of the general public and must not be generalized to population-wide opinion.
+
+The saved project JSON preserved:
+
+- `comment_sampling_method: "random"`;
+- `comment_sampling_seed: 0`;
+- docket `ITA-2025-0070`;
+- 12-comment limit;
+- no comparison document;
+- Balanced report standard;
+- excluded media selection.
+
+This confirms the live random-sampling path works end to end.
+
+### Regulations.gov page-size bug found and fixed
+
+A live API check exposed that the Regulations.gov v4 comment endpoint rejects `page[size]=1`; the minimum accepted page size is 5.
+
+Build 27 was hardened without changing the visible build number:
+
+- count requests now use `page[size]=5`;
+- regression coverage rejects Regulations.gov requests outside the 5–250 page-size range;
+- the full backend suite now contains 260 passing tests;
+- PolicyTrace CI #458 passed at commit `b0f5573155b580f8c7b35a9400cde1c5a7ff88f8`.
+
+The random-sampling audit text also now states that seed reproducibility depends on the recorded population count and stable Regulations.gov sort order. If the docket population changes, the same seed can select different positions or comment IDs.
+
+### Live media fallback during acceptance
+
+The same run showed optional media failover working as designed:
+
+- Media Cloud skipped because no key was configured;
+- GDELT returned HTTP 429 and was not retried;
+- Google News RSS supplied 8 fallback source pointers;
+- 7 of 8 were selected for the final report;
+- analysis and final approval continued.
+
+### Build 27 live acceptance
+
+Manual live acceptance: **PASS**
+
+The random comment sampler, project persistence, Leadership Report disclosure, Evidence Audit sampling receipt, representativeness warning, optional-source failover, and final human approval all completed successfully.
+
 ## Next work
 
 Freeze feature work and proceed to Microsoft Foundry contest validation:
