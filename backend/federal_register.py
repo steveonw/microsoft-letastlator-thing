@@ -6,7 +6,8 @@ import re
 from datetime import date
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -44,6 +45,7 @@ class NormalizedPolicyDocument(StrictModel):
     html_url: str | None = None
     pdf_url: str | None = None
     regulations_dot_gov_url: str | None = None
+    regulations_dot_gov_docket_id: str | None = None
     raw_text_url: str | None = None
     raw_text: str
     chunks: list[NormalizedChunk] = Field(default_factory=list)
@@ -128,6 +130,14 @@ def _list_of_strings(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item) for item in value if item]
     return [str(value)]
+
+
+def _regulations_dot_gov_docket_id(metadata: dict[str, Any]) -> str | None:
+    info = metadata.get("regulations_dot_gov_info")
+    if not isinstance(info, dict):
+        return None
+    value = info.get("docket_id")
+    return str(value).strip() if value else None
 
 
 def _infer_regulations_dot_gov_url(text: str) -> str | None:
@@ -311,6 +321,7 @@ def normalize_document(
             metadata.get("regulations_dot_gov_url")
             or _infer_regulations_dot_gov_url(text)
         ),
+        regulations_dot_gov_docket_id=_regulations_dot_gov_docket_id(metadata),
         raw_text_url=metadata.get("raw_text_url"),
         raw_text=text,
         chunks=chunk_text(
@@ -357,4 +368,325 @@ def fetch_and_normalize(
         metadata,
         raw_text,
         max_chunk_chars=max_chunk_chars,
+    )
+
+
+# Phase 9: Federal Register search and conservative docket detection.
+
+FEDERAL_REGISTER_SEARCH_API = "https://www.federalregister.gov/api/v1/documents.json"
+SEARCHABLE_DOCUMENT_TYPES = ("RULE", "PRORULE", "NOTICE", "PRESDOCU")
+DEFAULT_SEARCH_TYPES = ("RULE", "PRORULE")
+MAX_SEARCH_RESULTS = 20
+SEARCH_FIELDS = (
+    "document_number",
+    "title",
+    "type",
+    "action",
+    "abstract",
+    "agencies",
+    "publication_date",
+    "comments_close_on",
+    "docket_ids",
+    "regulation_id_numbers",
+    "regulations_dot_gov_info",
+    "html_url",
+)
+
+_DOCUMENT_NUMBER_RE = re.compile(
+    r"^(?:\\d{4}|\\d{2}|[A-Z]\\d{1,2})-\\d{3,6}$",
+    re.IGNORECASE,
+)
+_REGULATIONS_DOCKET_RE = re.compile(
+    r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\\d{4}-(?:[A-Z]-)?\\d{4,}$"
+)
+_CATCH_ALL_DOCKET_RE = re.compile(r"_FRDOC_", re.IGNORECASE)
+_DOCKET_PREFIX_RE = re.compile(
+    r"^\\s*(?:docket\\s*(?:no\\.?|number|id)?\\s*[:#]?\\s*)",
+    re.IGNORECASE,
+)
+
+
+class DocketCandidate(StrictModel):
+    docket_id: str
+    source: str
+    kind: str
+
+
+class DocketDetection(StrictModel):
+    status: str
+    docket_id: str | None = None
+    candidates: list[DocketCandidate] = Field(default_factory=list)
+    excluded: list[DocketCandidate] = Field(default_factory=list)
+    note: str
+
+
+class SearchCandidate(StrictModel):
+    document_number: str
+    title: str
+    document_type: str | None = None
+    action: str | None = None
+    abstract: str | None = None
+    agency_names: list[str] = Field(default_factory=list)
+    publication_date: date | None = None
+    comments_close_on: date | None = None
+    regulation_id_numbers: list[str] = Field(default_factory=list)
+    html_url: str | None = None
+    comments_count: int | None = None
+    docket: DocketDetection
+
+
+class DocumentSearchResult(StrictModel):
+    query: str
+    document_types: list[str]
+    total_count: int
+    candidates: list[SearchCandidate]
+    search_url: str
+    source: str = "Federal Register API"
+
+
+def looks_like_document_number(text: str) -> bool:
+    return bool(_DOCUMENT_NUMBER_RE.match(text.strip()))
+
+
+def _clean_docket_id(value: Any) -> str:
+    text = str(value or "").replace("\\u2013", "-").replace("\\u2014", "-")
+    text = _DOCKET_PREFIX_RE.sub("", text)
+    return text.strip().strip(".;,").upper()
+
+
+def classify_docket_id(docket_id: str) -> str:
+    if _CATCH_ALL_DOCKET_RE.search(docket_id):
+        return "catch_all"
+    if _REGULATIONS_DOCKET_RE.match(docket_id):
+        return "regulations_gov"
+    return "agency_reference"
+
+
+def _docket_from_url(value: Any) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = urlparse(str(value))
+    except ValueError:
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) >= 2 and parts[-2].casefold() == "docket":
+        return _clean_docket_id(parts[-1])
+    return None
+
+
+def detect_docket(metadata: dict[str, Any]) -> DocketDetection:
+    """Conservatively identify a docket that is safe to pre-fill.
+
+    Only an explicit Regulations.gov pointer is treated as verified enough to
+    auto-fill. Federal Register docket_ids are disclosed but are not auto-
+    fetched because some agency-internal IDs look exactly like Regulations.gov
+    docket IDs.
+    """
+    verified_raw: list[tuple[str, str]] = []
+    info = metadata.get("regulations_dot_gov_info")
+    if isinstance(info, dict) and info.get("docket_id"):
+        verified_raw.append(
+            (str(info["docket_id"]), "regulations_dot_gov_info")
+        )
+
+    from_url = _docket_from_url(metadata.get("regulations_dot_gov_url"))
+    if from_url:
+        verified_raw.append((from_url, "regulations_dot_gov_url"))
+
+    seen: set[str] = set()
+    usable: list[DocketCandidate] = []
+    excluded: list[DocketCandidate] = []
+
+    for value, source in verified_raw:
+        docket_id = _clean_docket_id(value)
+        if not docket_id or docket_id in seen:
+            continue
+        seen.add(docket_id)
+        kind = classify_docket_id(docket_id)
+        candidate = DocketCandidate(
+            docket_id=docket_id,
+            source=source,
+            kind=kind,
+        )
+        if kind == "regulations_gov":
+            usable.append(candidate)
+        else:
+            excluded.append(candidate)
+
+    for value in _list_of_strings(
+        metadata.get("docket_ids") or metadata.get("docket_id")
+    ):
+        docket_id = _clean_docket_id(value)
+        if not docket_id or docket_id in seen:
+            continue
+        seen.add(docket_id)
+        kind = classify_docket_id(docket_id)
+        excluded.append(
+            DocketCandidate(
+                docket_id=docket_id,
+                source="federal_register_docket_ids",
+                kind=(
+                    "catch_all"
+                    if kind == "catch_all"
+                    else "unverified_reference"
+                ),
+            )
+        )
+
+    if len(usable) == 1:
+        return DocketDetection(
+            status="single",
+            docket_id=usable[0].docket_id,
+            candidates=usable,
+            excluded=excluded,
+            note=(
+                f"Detected Regulations.gov docket {usable[0].docket_id} from "
+                "an explicit official Regulations.gov pointer. Confirm before "
+                "loading comments."
+            ),
+        )
+    if len(usable) > 1:
+        return DocketDetection(
+            status="multiple",
+            candidates=usable,
+            excluded=excluded,
+            note=(
+                "Several explicit Regulations.gov dockets are listed. Choose "
+                "one before loading comments."
+            ),
+        )
+
+    if any(item.kind == "catch_all" for item in excluded):
+        note = (
+            "Only an agency catch-all docket is listed. PolicyTrace will not "
+            "auto-load comments from it."
+        )
+    elif excluded:
+        refs = ", ".join(item.docket_id for item in excluded[:3])
+        note = (
+            "Federal Register metadata lists docket reference"
+            f"{'s' if len(excluded) != 1 else ''} {refs}, but no explicit "
+            "Regulations.gov comment-docket pointer was provided. PolicyTrace "
+            "will not auto-load comments; enter a verified docket manually if needed."
+        )
+    else:
+        note = (
+            "No Regulations.gov comment docket was detected. Enter one manually "
+            "if you know it."
+        )
+    return DocketDetection(
+        status="none",
+        excluded=excluded,
+        note=note,
+    )
+
+
+def detect_document_docket(
+    document: NormalizedPolicyDocument,
+) -> DocketDetection:
+    info = (
+        {"docket_id": document.regulations_dot_gov_docket_id}
+        if document.regulations_dot_gov_docket_id
+        else None
+    )
+    return detect_docket(
+        {
+            "regulations_dot_gov_info": info,
+            "regulations_dot_gov_url": document.regulations_dot_gov_url,
+            "docket_ids": document.docket_ids,
+        }
+    )
+
+
+def build_search_url(
+    term: str,
+    document_types: list[str],
+    limit: int,
+) -> str:
+    params: list[tuple[str, str]] = [
+        ("conditions[term]", term),
+        ("per_page", str(limit)),
+        ("order", "relevance"),
+    ]
+    params += [
+        ("conditions[type][]", document_type)
+        for document_type in document_types
+    ]
+    params += [("fields[]", field) for field in SEARCH_FIELDS]
+    return f"{FEDERAL_REGISTER_SEARCH_API}?{urlencode(params)}"
+
+
+def _search_candidate(item: dict[str, Any]) -> SearchCandidate:
+    info = item.get("regulations_dot_gov_info")
+    comments_count = (
+        info.get("comments_count")
+        if isinstance(info, dict)
+        else None
+    )
+    return SearchCandidate(
+        document_number=str(item["document_number"]),
+        title=str(item.get("title") or item["document_number"]),
+        document_type=item.get("type"),
+        action=item.get("action"),
+        abstract=item.get("abstract"),
+        agency_names=_agency_names(item),
+        publication_date=_parse_date(item.get("publication_date")),
+        comments_close_on=_parse_date(item.get("comments_close_on")),
+        regulation_id_numbers=_list_of_strings(
+            item.get("regulation_id_numbers")
+        ),
+        html_url=item.get("html_url"),
+        comments_count=(
+            comments_count
+            if isinstance(comments_count, int)
+            else None
+        ),
+        docket=detect_docket(item),
+    )
+
+
+def search_documents(
+    term: str,
+    *,
+    document_types: list[str] | tuple[str, ...] | None = None,
+    limit: int = 8,
+    timeout: int = 30,
+    get_json: Callable[..., dict[str, Any]] | None = None,
+) -> DocumentSearchResult:
+    term = " ".join(str(term or "").split())
+    if not term:
+        raise ValueError("Enter a document number or search words.")
+    if not 1 <= limit <= MAX_SEARCH_RESULTS:
+        raise ValueError(
+            f"limit must be between 1 and {MAX_SEARCH_RESULTS}"
+        )
+
+    types = [
+        value.strip().upper()
+        for value in (document_types or DEFAULT_SEARCH_TYPES)
+        if value.strip()
+    ]
+    unknown = sorted(set(types) - set(SEARCHABLE_DOCUMENT_TYPES))
+    if unknown:
+        raise ValueError(
+            f"Unsupported document type(s): {', '.join(unknown)}"
+        )
+    types = list(dict.fromkeys(types)) or list(DEFAULT_SEARCH_TYPES)
+
+    url = build_search_url(term, types, limit)
+    payload = (get_json or _get_json)(url, timeout=timeout)
+    items = payload.get("results") or []
+
+    return DocumentSearchResult(
+        query=term,
+        document_types=types,
+        total_count=int(payload.get("count") or 0),
+        candidates=[
+            _search_candidate(item)
+            for item in items[:limit]
+            if isinstance(item, dict)
+            and item.get("document_number")
+        ],
+        search_url=url,
     )
