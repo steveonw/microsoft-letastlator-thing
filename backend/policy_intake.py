@@ -68,6 +68,7 @@ class PolicyTraceProject(StrictModel):
     policytrace_project_schema: Literal[1] = PROJECT_SCHEMA_VERSION
     saved_at: datetime
     search_query: str = ""
+    include_notices: bool = False
     primary_document_number: str
     intake_plan: IntakePlan
     excluded_media_claim_ids: list[str] = Field(default_factory=list)
