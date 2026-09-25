@@ -307,7 +307,13 @@ def _download_attachment_bytes(
 
 def _extract_docx_text(payload: bytes) -> str:
     with ZipFile(BytesIO(payload)) as archive:
-        document_xml = archive.read("word/document.xml")
+        document_info = archive.getinfo("word/document.xml")
+        if document_info.file_size > MAX_ATTACHMENT_BYTES:
+            raise ValueError(
+                "DOCX main document XML exceeds the PolicyTrace decompression "
+                f"safety limit of {MAX_ATTACHMENT_BYTES} bytes"
+            )
+        document_xml = archive.read(document_info)
     root = ElementTree.fromstring(document_xml)
 
     parts: list[str] = []
