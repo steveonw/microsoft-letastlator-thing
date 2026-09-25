@@ -1515,9 +1515,28 @@ Return JSON only: {"summary":"..."}.
             for key, value in sorted(status["source_type_counts"].items())
         ) or "none"
 
+        if status["sampling_method"] == "random":
+            population = status["population_count"]
+            sampling_line = (
+                f"- Sampling: {status['retrieved_count']} of "
+                f"{population if population is not None else 'unknown'} submitted "
+                "comments selected by reproducible random sampling"
+                + (
+                    f" (seed {status['sampling_seed']})."
+                    if status["sampling_seed"] is not None
+                    else "."
+                )
+            )
+        else:
+            sampling_line = (
+                "- Sampling: earliest available submitted comments in "
+                "Regulations.gov sort order, up to the requested limit."
+            )
+
         lines = [
             "## Corpus limits",
             f"- Requested up to: {requested_text} comments",
+            sampling_line,
             f"- Retrieved: {status['retrieved_count']}",
             f"- Analyzed source records: {status['analyzed_source_count']}",
             f"- Exact-text clusters: {status['exact_text_cluster_count']}",
