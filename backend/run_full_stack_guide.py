@@ -889,8 +889,9 @@ Return JSON only: {"summary":"..."}.
         self.policy_status = status
         self.revision_comparison = None
         self.news_discovery = None
-        self.related_documents = related_document_suggestions(document, status)
-        self._intake_document_cache[document.document_number] = document
+        self.related_documents = []
+        if getattr(document, "document_number", None):
+            self._intake_document_cache[document.document_number] = document
         self.analysis = AnalysisRun.model_validate(
             analysis.model_dump(mode="python")
         )
