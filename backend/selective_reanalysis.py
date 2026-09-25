@@ -11,6 +11,7 @@ from models import (
     HumanReview,
     HumanReviewStatus,
     InformationType,
+    ReportStandard,
     StepKind,
     VerificationStatus,
     StepStatus,
@@ -313,7 +314,11 @@ def _claim_origin(step: AnalysisStep, claim) -> str:
     return "human-edited" if human_edited else "AI-generated"
 
 
-def _promotion_block_reason(step: AnalysisStep, claim) -> str | None:
+def _promotion_block_reason(
+    step: AnalysisStep,
+    claim,
+    report_standard: ReportStandard = ReportStandard.BALANCED,
+) -> str | None:
     if not claim.evidence_ids:
         return "No cited evidence is attached to this finding."
 
@@ -321,14 +326,15 @@ def _promotion_block_reason(step: AnalysisStep, claim) -> str | None:
         reason = _flag_reason(step, claim.id) or "Reason not recorded."
         return f"Reviewer flag remains unresolved: {reason}"
 
-    if claim.verification_status not in {
-        VerificationStatus.SUPPORTED,
-        VerificationStatus.PARTIALLY_SUPPORTED,
-    }:
+    allowed = {VerificationStatus.SUPPORTED}
+    if report_standard in {ReportStandard.BALANCED, ReportStandard.EXPLORATORY}:
+        allowed.add(VerificationStatus.PARTIALLY_SUPPORTED)
+
+    if claim.verification_status not in allowed:
         return (
             "Verification status is "
-            f"{claim.verification_status.value}; normal report promotion "
-            "requires supported or partially_supported."
+            f"{claim.verification_status.value}; report standard "
+            f"{report_standard.value} does not promote this verification state."
         )
 
     return None
@@ -351,6 +357,7 @@ def _leadership_report_text(
     lines = [
         "PolicyTrace Leadership Report",
         f"Policy: {analysis.policy.title}",
+        f"Report standard: {analysis.report_standard.value}",
         "",
         (
             "This report contains only reviewed findings that have cited evidence "
@@ -363,7 +370,7 @@ def _leadership_report_text(
     for step in steps:
         promoted = []
         for claim in step.claims:
-            if _promotion_block_reason(step, claim) is None:
+            if _promotion_block_reason(step, claim, analysis.report_standard) is None:
                 promoted.append(claim)
             else:
                 withheld += 1
@@ -383,12 +390,41 @@ def _leadership_report_text(
             "",
             "## Review limitations",
             (
-                f"- {withheld} reviewed finding(s) were withheld from this leadership "
-                "report because an evidence, verification, or reviewer-flag gate "
-                "remains unresolved. See the Evidence Audit Log for the full record."
+                f"- {withheld} reviewed finding(s) were withheld from normal leadership "
+                "report promotion because an evidence, verification, report-standard, "
+                "or reviewer-flag gate remains unresolved. See the Evidence Audit Log "
+                "for the full record."
             ),
         ]
     )
+
+    if analysis.report_standard == ReportStandard.EXPLORATORY:
+        exploratory = []
+        for step in steps:
+            for claim in step.claims:
+                if (
+                    claim.evidence_ids
+                    and claim.id not in step.human_review.flagged_claim_ids
+                    and claim.verification_status
+                    in {
+                        VerificationStatus.NEEDS_CLARIFICATION,
+                        VerificationStatus.NEEDS_HUMAN_REVIEW,
+                    }
+                ):
+                    exploratory.append((step, claim))
+        lines.extend(["", "## Exploratory reviewed findings"])
+        if not exploratory:
+            lines.append("- No evidence-backed unresolved findings were available.")
+        else:
+            lines.append(
+                "- These findings are shown for review context only. They are not "
+                "established findings and were not promoted by the verification gate."
+            )
+            for _step, claim in exploratory:
+                lines.append(
+                    f"- [{claim.verification_status.value}] {claim.text} [{claim.id}]"
+                )
+
     return "\n".join(lines)
 
 
@@ -435,7 +471,11 @@ def _append_audit_claim(
     claim,
 ) -> None:
     origin = _claim_origin(step, claim)
-    block_reason = _promotion_block_reason(step, claim)
+    block_reason = _promotion_block_reason(
+        step,
+        claim,
+        analysis.report_standard,
+    )
     lines.extend(
         [
             f"- Claim ID: {claim.id}",
@@ -475,6 +515,7 @@ def _audit_log_text(
         f"Policy: {analysis.policy.title}",
         f"Analysis run: {analysis.id}",
         f"Final human review status: {analysis.final_review_status.value}",
+        f"Report standard: {analysis.report_standard.value}",
         "",
         (
             "This log preserves every reviewed structured finding, including "
