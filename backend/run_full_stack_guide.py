@@ -1634,6 +1634,8 @@ Return JSON only: {"summary":"..."}.
         return self.analysis
 
     def guided_verify(self, claim_id: str) -> AnalysisRun:
+        if self.policy_analysis is not None:
+            self._require_live_model()
         self.analysis = verify_current_claim(
             self.analysis,
             claim_id,
@@ -1649,6 +1651,7 @@ Return JSON only: {"summary":"..."}.
         if self.policy_analysis is None:
             policy_run, response_run = make_rush_inputs()
         else:
+            self._require_live_model()
             policy_run = self.policy_analysis
             response_run = (
                 self.response_analysis
@@ -1764,6 +1767,15 @@ Return JSON only: {"summary":"..."}.
             raise ValueError(f"unknown analysis step {step_id!r}")
         if step.status == StepStatus.NEEDS_REFRESH:
             raise ValueError("refresh this step before marking it reviewed")
+
+        if (
+            self.policy_analysis is not None
+            and any(
+                claim.verification_status == VerificationStatus.NEEDS_HUMAN_REVIEW
+                for claim in step.claims
+            )
+        ):
+            self._require_live_model()
 
         original_mode = self.analysis.mode
         for claim in step.claims:
