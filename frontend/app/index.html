@@ -11,7 +11,7 @@
     <div class="brand">
       <span class="mark">PolicyTrace</span>
       <span class="tagline">Every finding traced to the source text</span>
-      <span id="build-marker" class="build-marker">build 22</span>
+      <span id="build-marker" class="build-marker">build 23</span>
     </div>
     <div class="topbar-right">
       <span id="mode-pill" class="pill">not started</span>
@@ -33,25 +33,17 @@
 
   <main id="stage">
     <section id="start-screen" class="start">
-      <h1>How do you want to review this policy?</h1>
+      <h1>Analyze everything, then review</h1>
       <p class="lede">
-        PolicyTrace reads the policy and public comments, writes findings, and
-        links every finding to the exact words in the source. You decide what
-        is accepted.
+        PolicyTrace runs the analysis up front, then lets you inspect, edit,
+        flag, include, or exclude material before anything is approved.
       </p>
-      <div class="choices">
-        <button id="start-guided" type="button" class="choice">
-          <span class="choice-title">Review section by section</span>
-          <span class="choice-body">
-            Work through one section at a time. Nothing moves forward until you
-            say so. Best when the policy matters and you have time.
-          </span>
-        </button>
+      <div class="choices choices-single">
         <button id="start-rush" type="button" class="choice">
-          <span class="choice-title">Analyze everything, then review</span>
+          <span class="choice-title">Start analysis and review</span>
           <span class="choice-body">
-            Run the whole analysis up front and review it as a set. Faster, but
-            it still cannot finish without your approval.
+            Analyze the full policy first, then review every saved section.
+            The final report still requires your approval.
           </span>
         </button>
       </div>
@@ -163,8 +155,8 @@
         </div>
 
         <p id="source-state" class="source-state">
-          No live sources loaded yet. Load a policy, optionally add comments,
-          then choose Guided or Rush above.
+          No live sources loaded yet. Load a policy, optionally add comments
+          and related reporting, then start the analysis above.
         </p>
       </details>
     </section>
