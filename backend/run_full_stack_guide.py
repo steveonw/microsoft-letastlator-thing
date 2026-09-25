@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
+from evidence import source_from_federal_register
 from federal_register import NormalizedPolicyDocument, fetch_and_normalize
 from foundry_client import FoundryChatClient, FoundryConfig
 from guided_review import (
@@ -30,6 +31,7 @@ from models import (
     InformationType,
     PiiRedactionStatus,
     Policy,
+    ReportStandard,
     Source,
     StepKind,
     StepStatus,
@@ -43,6 +45,15 @@ from openrouter_client import (
     OpenRouterConfig,
 )
 from policy_interpreter import run_policy_interpreter
+from policy_intake import (
+    IntakePlan,
+    PolicyTraceProject,
+    bounded_preview_excerpt,
+    estimate_comparison_workload,
+    related_document_suggestions,
+    search_federal_register,
+    validate_project,
+)
 from policy_status import PolicyStatusSnapshot, fetch_policy_status
 from response_sources import (
     CommentFetchError,
@@ -496,6 +507,10 @@ class GuideState:
         self.policy_status: PolicyStatusSnapshot | None = None
         self.revision_comparison: RevisionComparison | None = None
         self.news_discovery: NewsDiscovery | None = None
+        self.intake_plan = IntakePlan()
+        self.intake_search_query = ""
+        self.related_documents = []
+        self._intake_document_cache: dict[str, NormalizedPolicyDocument] = {}
 
     def _sync_news_review_step(self, analysis: AnalysisRun) -> AnalysisRun:
         updated = AnalysisRun.model_validate(analysis.model_dump(mode="python"))
@@ -625,6 +640,229 @@ class GuideState:
         self.analysis = self._guided_loaded_analysis()
         return self.analysis
 
+    def search_policies(self, query: str) -> dict[str, Any]:
+        self.intake_search_query = query.strip()
+        results = search_federal_register(self.intake_search_query)
+        return {
+            "query": self.intake_search_query,
+            "results": [item.model_dump(mode="json") for item in results],
+        }
+
+    def _intake_document(self, document_number: str) -> NormalizedPolicyDocument:
+        document_number = document_number.strip()
+        if not document_number:
+            raise ValueError("Federal Register document number is required")
+        cached = self._intake_document_cache.get(document_number)
+        if cached is not None:
+            return cached
+        document = fetch_and_normalize(document_number)
+        self._intake_document_cache[document_number] = document
+        return document
+
+    def select_policy(self, document_number: str) -> dict[str, Any]:
+        document = self._intake_document(document_number)
+        status = fetch_policy_status(document)
+        source = source_from_federal_register(document)
+
+        self.document = document
+        self.policy_status = status
+        self.policy_analysis = None
+        self.response_analysis = None
+        self.last_comment_fetch_report = None
+        self.revision_comparison = None
+        self.news_discovery = None
+        self.intake_plan = IntakePlan()
+        self.related_documents = related_document_suggestions(document, status)
+        self.analysis = AnalysisRun(
+            id=f"intake-{document.document_number}",
+            mode=AnalysisMode.RUSH,
+            policy=Policy(
+                id=f"policy-{document.document_number}",
+                title=document.title,
+                jurisdiction="United States / Federal",
+                version=document.document_number,
+                source_ids=[source.id],
+            ),
+            sources=[source],
+            evidence=[],
+            steps=[],
+            current_step_id=None,
+            final_review_status=HumanReviewStatus.NOT_REVIEWED,
+            report_standard=ReportStandard.BALANCED,
+        )
+        return self.intake_payload()
+
+    def intake_payload(self) -> dict[str, Any]:
+        document = self.document
+        if document is None:
+            return {"available": False}
+        return {
+            "available": True,
+            "search_query": self.intake_search_query,
+            "document": {
+                "document_number": document.document_number,
+                "title": document.title,
+                "document_type": document.document_type,
+                "action": document.action,
+                "agency_names": document.agency_names,
+                "publication_date": (
+                    document.publication_date.isoformat()
+                    if document.publication_date
+                    else None
+                ),
+                "comments_close_on": (
+                    document.comments_close_on.isoformat()
+                    if document.comments_close_on
+                    else None
+                ),
+                "docket_ids": document.docket_ids,
+                "regulation_id_numbers": document.regulation_id_numbers,
+                "citation": document.citation,
+                "html_url": document.html_url,
+                "character_count": len(document.raw_text),
+                "unit_count": len(document.chunks),
+            },
+            "related_documents": [
+                item.model_dump(mode="json")
+                for item in self.related_documents
+            ],
+            "plan": self.intake_plan.model_dump(mode="json"),
+        }
+
+    def preview_policy(self, document_number: str) -> dict[str, Any]:
+        document = self._intake_document(document_number)
+        excerpt = bounded_preview_excerpt(document)
+
+        if self.provider.kind == "deterministic":
+            return {
+                "document_number": document.document_number,
+                "title": document.title,
+                "preview": excerpt[:500].strip(),
+                "preview_kind": "official-source excerpt",
+                "excerpt_characters": min(len(excerpt), 500),
+                "note": (
+                    "Configure a live AI provider to generate the neutral AI topic "
+                    "preview. This fallback is source text, not AI interpretation."
+                ),
+            }
+
+        system_prompt = """You are PolicyTrace intake preview.
+Describe what the supplied Federal Register excerpt is about in at most two neutral sentences.
+Use only the supplied excerpt. Do not infer current legal effect, motives, support, opposition, or consequences not stated in the excerpt.
+Return JSON only: {"summary":"..."}.
+"""
+        user_prompt = (
+            f"Document number: {document.document_number}\n"
+            f"Title: {document.title}\n"
+            f"Official excerpt (first {len(excerpt)} characters):\n{excerpt}"
+        )
+        raw = self.provider.model_call()(system_prompt, user_prompt)
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("AI preview provider returned malformed JSON") from exc
+        summary = str(parsed.get("summary", "")).strip()
+        if not summary:
+            raise RuntimeError("AI preview provider returned no summary")
+        return {
+            "document_number": document.document_number,
+            "title": document.title,
+            "preview": summary,
+            "preview_kind": "AI-generated bounded official-source preview",
+            "excerpt_characters": len(excerpt),
+            "note": (
+                "This preview is AI-generated from a bounded official-text excerpt "
+                "and is not a verified legal conclusion."
+            ),
+        }
+
+    def comparison_workload(self, document_number: str) -> dict[str, Any]:
+        if self.document is None:
+            raise ValueError("Select a primary Federal Register policy first")
+        estimate, comparison = estimate_comparison_workload(
+            self.document,
+            document_number,
+        )
+        self._intake_document_cache[comparison.document_number] = comparison
+        return estimate.model_dump(mode="json")
+
+    def validate_project_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return validate_project(payload).model_dump(mode="json")
+
+    def run_intake(self, payload: dict[str, Any]) -> AnalysisRun:
+        if self.document is None:
+            raise ValueError("Select a Federal Register policy before analysis")
+        self._require_live_model()
+
+        plan_payload = payload.get("plan", payload)
+        plan = IntakePlan.model_validate(plan_payload)
+        excluded_media_claim_ids = [
+            str(value)
+            for value in payload.get("excluded_media_claim_ids", [])
+            if str(value).strip()
+        ]
+        self.intake_plan = plan
+
+        policy_analysis = run_policy_interpreter(
+            self.document,
+            self.provider.model_call(),
+            mode=AnalysisMode.GUIDED,
+        )
+        policy_analysis.report_standard = plan.report_standard
+        self.policy_analysis = AnalysisRun.model_validate(
+            policy_analysis.model_dump(mode="python")
+        )
+        self.response_analysis = None
+        self.last_comment_fetch_report = None
+        self.revision_comparison = None
+        self.news_discovery = None
+        self.analysis = AnalysisRun.model_validate(
+            self.policy_analysis.model_dump(mode="python")
+        )
+
+        if plan.include_comments:
+            if not plan.docket_id.strip():
+                raise ValueError(
+                    "Public comments are selected but no Regulations.gov docket is set"
+                )
+            self.load_comments(
+                plan.docket_id,
+                max_comments=plan.max_comments,
+            )
+
+        if plan.include_news:
+            self.discover_news(
+                query=plan.news_query,
+                max_articles=plan.max_articles,
+            )
+            media_step = next(
+                (
+                    step
+                    for step in self.analysis.steps
+                    if step.id == NEWS_REVIEW_STEP_ID
+                ),
+                None,
+            )
+            if media_step is not None:
+                known = {claim.id for claim in media_step.claims}
+                media_step.human_review.excluded_claim_ids = [
+                    claim_id
+                    for claim_id in excluded_media_claim_ids
+                    if claim_id in known
+                ]
+
+        if plan.include_comparison:
+            if not plan.comparison_document_number.strip():
+                raise ValueError(
+                    "Revision comparison is selected but no comparison document is set"
+                )
+            self.compare_revision(plan.comparison_document_number)
+
+        rushed = self.run_rush()
+        rushed.report_standard = plan.report_standard
+        self.analysis = AnalysisRun.model_validate(rushed.model_dump(mode="python"))
+        return self.analysis
+
     def load_policy(self, document_number: str) -> AnalysisRun:
         document_number = document_number.strip()
         if not document_number:
@@ -651,6 +889,8 @@ class GuideState:
         self.policy_status = status
         self.revision_comparison = None
         self.news_discovery = None
+        self.related_documents = related_document_suggestions(document, status)
+        self._intake_document_cache[document.document_number] = document
         self.analysis = AnalysisRun.model_validate(
             analysis.model_dump(mode="python")
         )
@@ -1047,6 +1287,8 @@ class GuideState:
         }
 
     def _policy_status_brief_text(self) -> str | None:
+        if not self.intake_plan.include_current_status:
+            return None
         status = self.policy_status_payload()
         if self.document is None:
             return None
@@ -1504,6 +1746,7 @@ def _safe_error_message(message: object) -> str:
         STATE.provider.api_key,
         STATE.provider.bearer_token,
         STATE.provider.regulations_api_key,
+        STATE.provider.media_cloud_api_key,
     )
     for secret in secrets:
         if secret:
@@ -1653,6 +1896,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/provider":
             self._send_json(200, STATE.provider.status())
             return
+        if self.path == "/api/intake/current":
+            self._send_json(200, STATE.intake_payload())
+            return
         if self.path == "/api/source/policy/status":
             self._send_json(200, STATE.policy_status_payload())
             return
@@ -1709,7 +1955,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, STATE.provider.status())
                 return
 
-            if self.path == "/api/source/load":
+            if self.path == "/api/intake/search":
+                result = STATE.search_policies(str(body.get("query", "")))
+            elif self.path == "/api/intake/select":
+                result = STATE.select_policy(
+                    str(body.get("document_number", ""))
+                )
+            elif self.path == "/api/intake/preview":
+                result = STATE.preview_policy(
+                    str(body.get("document_number", ""))
+                )
+            elif self.path == "/api/intake/workload":
+                result = STATE.comparison_workload(
+                    str(body.get("document_number", ""))
+                )
+            elif self.path == "/api/intake/project/validate":
+                project_value = body.get("project")
+                if not isinstance(project_value, dict):
+                    raise ValueError("project must be a JSON object")
+                result = STATE.validate_project_payload(project_value)
+            elif self.path == "/api/intake/run":
+                result = STATE.run_intake(body)
+            elif self.path == "/api/source/load":
                 result = STATE.load_policy(
                     str(body.get("document_number", ""))
                 )
