@@ -141,6 +141,7 @@ class HumanReview(StrictModel):
     notes: list[str] = Field(default_factory=list)
     flagged_claim_ids: list[str] = Field(default_factory=list)
     edited_claim_ids: list[str] = Field(default_factory=list)
+    excluded_claim_ids: list[str] = Field(default_factory=list)
 
 
 class AnalysisStep(StrictModel):
